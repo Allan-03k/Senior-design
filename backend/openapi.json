@@ -1,0 +1,164 @@
+{
+  "openapi": "3.0.3",
+  "info": { "title": "SmartCuisine API", "version": "0.1.0" },
+  "servers": [{ "url": "http://localhost:5001" }],
+  "paths": {
+    "/health": {
+      "get": { "summary": "Health check", "responses": { "200": { "description": "OK" } } }
+    },
+    "/api/ingredients/recognize": {
+      "post": {
+        "summary": "Image → ingredients (mock now; pluggable providers)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "image": { "type": "string", "format": "binary", "description": "jpg/png" }
+                }
+              }
+            },
+            "application/json": {
+              "schema": { "type": "object", "properties": { "mock_image_hint": { "type": "string" } } }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Detected ingredients",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/RecognizeResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/recipes/recommend": {
+      "post": {
+        "summary": "Recommend recipes by ingredients",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/RecommendRequest" } }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Recipe list",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/RecommendResponse" } }
+            }
+          },
+          "400": { "description": "Bad request", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/api/shopping-list": {
+      "post": {
+        "summary": "Compute missing ingredients for a recipe",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/ShoppingListRequest" } }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Missing list",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/ShoppingListResponse" } }
+            }
+          },
+          "404": { "description": "Recipe not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/api/restaurants/search": {
+      "get": {
+        "summary": "Search nearby restaurants (placeholder)",
+        "parameters": [
+          { "in": "query", "name": "cuisine", "schema": { "type": "string" } },
+          { "in": "query", "name": "lat", "schema": { "type": "number" } },
+          { "in": "query", "name": "lng", "schema": { "type": "number" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Restaurant results",
+            "content": { "application/json": { "schema": { "type": "object",
+              "properties": {
+                "cuisine": { "type": "string" },
+                "results": { "type": "array", "items": { "type": "object",
+                  "properties": {
+                    "name": { "type": "string" },
+                    "rating": { "type": "number" },
+                    "distance_km": { "type": "number" },
+                    "lat": { "type": "number" },
+                    "lng": { "type": "number" }
+                  } } }
+              } } } }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "RecognizeResponse": {
+        "type": "object",
+        "properties": {
+          "ingredients": { "type": "array", "items": { "type": "string" } },
+          "freshness": { "type": "object", "additionalProperties": { "type": "string" } }
+        }
+      },
+      "RecommendRequest": {
+        "type": "object",
+        "required": ["ingredients"],
+        "properties": { "ingredients": { "type": "array", "items": { "type": "string" }, "minItems": 1 } }
+      },
+      "RecipeItem": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer" },
+          "name": { "type": "string" },
+          "cuisine": { "type": "string" },
+          "match_ratio": { "type": "number" },
+          "required_ingredients": { "type": "array", "items": { "type": "string" } },
+          "steps": { "type": "string" }
+        }
+      },
+      "RecommendResponse": {
+        "type": "object",
+        "properties": { "recipes": { "type": "array", "items": { "$ref": "#/components/schemas/RecipeItem" } } }
+      },
+      "ShoppingListRequest": {
+        "type": "object",
+        "required": ["recipe_id", "ingredients"],
+        "properties": {
+          "recipe_id": { "type": "integer" },
+          "ingredients": { "type": "array", "items": { "type": "string" } }
+        }
+      },
+      "ShoppingListItem": {
+        "type": "object",
+        "properties": { "ingredient": { "type": "string" }, "qty": { "type": "string" } }
+      },
+      "ShoppingListResponse": {
+        "type": "object",
+        "properties": { "missing": { "type": "array", "items": { "$ref": "#/components/schemas/ShoppingListItem" } } }
+      },
+      "Error": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": { "code": { "type": "string" }, "message": { "type": "string" } }
+          }
+        }
+      }
+    }
+  }
+}
