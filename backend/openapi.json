@@ -1,6 +1,6 @@
 {
   "openapi": "3.0.3",
-  "info": { "title": "SmartCuisine API", "version": "0.1.0" },
+  "info": { "title": "SmartCuisine API", "version": "0.2.0" },
   "servers": [{ "url": "http://localhost:5001" }],
   "paths": {
     "/health": {
@@ -28,32 +28,65 @@
         "responses": {
           "200": {
             "description": "Detected ingredients",
-            "content": {
-              "application/json": {
-                "schema": { "$ref": "#/components/schemas/RecognizeResponse" }
-              }
-            }
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RecognizeResponse" } } }
           }
         }
       }
     },
     "/api/recipes/recommend": {
       "post": {
-        "summary": "Recommend recipes by ingredients",
+        "summary": "Recommend recipes by ingredients (local rule-based)",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RecommendRequest" } } }
+        },
+        "responses": {
+          "200": { "description": "Recipe list", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RecommendResponse" } } } },
+          "400": { "description": "Bad request", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/api/recipes/search-web": {
+      "post": {
+        "summary": "Search the web for recipes by ingredients (Google CSE + Schema.org parsing)",
         "requestBody": {
           "required": true,
           "content": {
-            "application/json": { "schema": { "$ref": "#/components/schemas/RecommendRequest" } }
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["ingredients"],
+                "properties": {
+                  "ingredients": { "type": "array", "items": { "type": "string" } },
+                  "cuisine": { "type": "string" }
+                }
+              }
+            }
           }
         },
         "responses": {
           "200": {
-            "description": "Recipe list",
+            "description": "Recipe search results from web",
             "content": {
-              "application/json": { "schema": { "$ref": "#/components/schemas/RecommendResponse" } }
+              "application/json": {
+                "schema": { "type": "object",
+                  "properties": {
+                    "items": { "type": "array", "items": {
+                      "type": "object",
+                      "properties": {
+                        "name": { "type": "string" },
+                        "url": { "type": "string" },
+                        "image": { "type": "string" },
+                        "ingredients": { "type": "array", "items": { "type": "string" } },
+                        "instructions": { "type": "array", "items": { "type": "string" } },
+                        "score": { "type": "number" }
+                      }
+                    } }
+                  } }
+              }
             }
           },
-          "400": { "description": "Bad request", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+          "400": { "description": "Bad request" }
         }
       }
     },
@@ -62,17 +95,10 @@
         "summary": "Compute missing ingredients for a recipe",
         "requestBody": {
           "required": true,
-          "content": {
-            "application/json": { "schema": { "$ref": "#/components/schemas/ShoppingListRequest" } }
-          }
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ShoppingListRequest" } } }
         },
         "responses": {
-          "200": {
-            "description": "Missing list",
-            "content": {
-              "application/json": { "schema": { "$ref": "#/components/schemas/ShoppingListResponse" } }
-            }
-          },
+          "200": { "description": "Missing list", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ShoppingListResponse" } } } },
           "404": { "description": "Recipe not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
         }
       }
@@ -86,9 +112,8 @@
           { "in": "query", "name": "lng", "schema": { "type": "number" } }
         ],
         "responses": {
-          "200": {
-            "description": "Restaurant results",
-            "content": { "application/json": { "schema": { "type": "object",
+          "200": { "description": "Restaurant results", "content": { "application/json": {
+            "schema": { "type": "object",
               "properties": {
                 "cuisine": { "type": "string" },
                 "results": { "type": "array", "items": { "type": "object",
@@ -99,8 +124,7 @@
                     "lat": { "type": "number" },
                     "lng": { "type": "number" }
                   } } }
-              } } } }
-          }
+              } } } } }
         }
       }
     }
