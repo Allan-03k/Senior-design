@@ -4,7 +4,7 @@ import time
 from flask import Flask, request, jsonify, Response
 from flask_cors import CORS
 from pydantic import ValidationError
-from dotenv import load_dotenv  # 新增：加载 .env
+from dotenv import load_dotenv 
 
 from schemas.dto import (
     RecognizeResponse, RecommendRequest, RecommendResponse, RecipeItem,
@@ -12,17 +12,15 @@ from schemas.dto import (
 )
 from services.vision import recognize_from_file, recognize_from_hint
 from services.places import search_restaurants
-from services.webrecipes import discover_recipes_from_web  # 新增
+from services.webrecipes import discover_recipes_from_web  
 
-# 载入 .env（若存在）
 load_dotenv()
 
 app = Flask(__name__)
 
-# CORS（开发期可 * ，上线请收紧）
 CORS(app, resources={r"/api/*": {"origins": os.getenv("CORS_ALLOW_ORIGINS", "*")}})
 
-# 上传限制：最大 5MB
+# Upload limit: Maximum 5MB
 app.config["MAX_CONTENT_LENGTH"] = 5 * 1024 * 1024
 ALLOWED_EXT = {"jpg", "jpeg", "png"}
 
@@ -77,9 +75,8 @@ def health(): return ok({"status": "ok"})
 @app.post("/api/ingredients/recognize")
 def recognize():
     """
-    支持两种调用：
-    - multipart/form-data: files['image'] 传图片（仅限 jpg/png）
-    - application/json:   {"mock_image_hint": "..."} 供早期调试
+    Supports two call methods:
+    - multipart/form-data: files['image'] Transfers images (jpg/png only)
     """
     if "image" in request.files:
         f = request.files["image"]
@@ -122,7 +119,6 @@ def recommend():
             ))
     return ok(RecommendResponse(recipes=results).model_dump())
 
-# 新增：网上搜菜谱（Google CSE + 结构化解析）
 @app.post("/api/recipes/search-web")
 def search_web():
     data = request.get_json(force=True) or {}
