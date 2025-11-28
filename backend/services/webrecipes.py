@@ -9,7 +9,7 @@ GOOGLE_CX  = os.getenv("GOOGLE_CSE_ID")
 UA = {"User-Agent": "SmartCuisineBot/0.1 (+https://example.com/contact)"}
 
 def search_recipe_items(query: str, count=5):
-    """通过 Google Programmable Search (CSE) 搜索网页结果（不解析 HTML）"""
+    """Searching web pages using Google Programmable Search (CSE) (without parsing HTML)"""
     if not GOOGLE_KEY or not GOOGLE_CX:
         raise RuntimeError("Google API key or CX not set (GOOGLE_API_KEY / GOOGLE_CSE_ID)")
 
@@ -25,7 +25,7 @@ def search_recipe_items(query: str, count=5):
     return r.json().get("items", []) or []
 
 def score_by_text(text: str, ingredients: list[str]) -> float:
-    """根据标题+摘要文本和用户食材的重合度打一个 0~1 的分数"""
+    """Assign a score from 0 to 1 based on the degree of overlap between the title/summary text and the user's ingredients."""
     text_tokens = set(re.findall(r"[a-zA-Z]+", text.lower()))
     ing = set(i.lower() for i in ingredients)
     if not text_tokens:
@@ -36,13 +36,13 @@ def score_by_text(text: str, ingredients: list[str]) -> float:
 
 def discover_recipes_from_web(ingredients: list[str], cuisine: str | None = None, limit=5):
     """
-    根据 ingredients (+ 可选 cuisine) 调用 Google CSE，
-    返回若干条简单的“网上菜谱候选”：
-    - name: 标题
-    - url:  链接
-    - instructions: 用 snippet 作为简单描述
-    - ingredients: 暂时空列表
-    - score: 与食材的文本匹配度
+    Calling Google CSE based on ingredients (+ optional cuisine),
+    returns several simple "online recipe candidates":
+    - name: title
+    - url: link
+    - instructions: a short description using a snippet
+    - ingredients: a temporarily empty list
+    - score: text matching score of the ingredients
     """
     query = " ".join(ingredients)
     if cuisine:
