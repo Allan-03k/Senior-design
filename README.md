@@ -11,3 +11,7 @@ To run the demo:
 
 2.go to client, run npm run dev
 
+
+Already using Docker to run the project
+
+docker-compose up --build
