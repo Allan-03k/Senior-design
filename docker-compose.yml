@@ -1,0 +1,22 @@
+version: '3.8'
+
+services:
+  backend:
+    build: ./backend
+    container_name: smarteats-backend
+    ports:
+      - "5001:5001"
+    env_file:
+      - ./backend/.env
+    volumes:
+      - ./backend:/app
+      - /app/__pycache__
+      - /app/smartcuisine.db
+
+  frontend:
+    build: ./client
+    container_name: smarteats-frontend
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
