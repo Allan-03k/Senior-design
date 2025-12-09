@@ -15,10 +15,73 @@ import {
   Spinner,
 } from "react-bootstrap";
 
-// 后端 API 根地址：如果端口不是 5001，在这里改
+// Backend API base URL
 const API_BASE = "http://localhost:5001/api";
 
-// 一些常见食材，用来从说明文本里“猜”出 ingredients
+// Common ingredients for "Quick Add"
+const COMMON_INGREDIENTS = [
+  // Protein
+  "Egg",
+  "Chicken",
+  "Beef",
+  "Pork",
+  "Fish",
+  "Shrimp",
+  "Tofu",
+  "Bacon",
+
+  // Carbs
+  "Rice",
+  "Pasta",
+  "Noodles",
+  "Bread",
+  "Tortilla",
+  "Potato",
+  "Sweet Potato",
+
+  // Dairy
+  "Milk",
+  "Yogurt",
+  "Cheese",
+  "Butter",
+  "Cream",
+
+  // Vegetables
+  "Tomato",
+  "Onion",
+  "Garlic",
+  "Carrot",
+  "Broccoli",
+  "Spinach",
+  "Lettuce",
+  "Cabbage",
+  "Cucumber",
+  "Bell Pepper",
+  "Mushroom",
+  "Corn",
+  "Green Onion",
+
+  // Seasoning & sauces
+  "Salt",
+  "Pepper",
+  "Sugar",
+  "Soy Sauce",
+  "Vinegar",
+  "Oil",
+  "Olive Oil",
+  "Sesame Oil",
+  "Tomato Sauce",
+  "Ketchup",
+  "Mayonnaise",
+
+  // Others
+  "Ginger",
+  "Chili",
+  "Lemon",
+  "Lime",
+];
+
+// Simple dictionary used to guess ingredients from a text snippet
 const KNOWN_INGREDIENTS = [
   "egg",
   "eggs",
@@ -48,7 +111,7 @@ const KNOWN_INGREDIENTS = [
   "cream",
 ];
 
-// 从一段文字里自动抽取常见食材（非常简单的规则版）
+// Extract simple ingredient words from free text (very naive)
 function extractIngredientsFromText(text) {
   if (!text) return [];
   const lower = text.toLowerCase();
@@ -66,7 +129,7 @@ function extractIngredientsFromText(text) {
   return found;
 }
 
-// ========== 菜谱详情弹窗 ==========
+// ========== Recipe Detail Modal ==========
 function RecipeModal({
   show,
   handleClose,
@@ -111,10 +174,7 @@ function RecipeModal({
             <h5 className="border-bottom pb-2">🛒 Ingredients</h5>
             <ul className="list-group list-group-flush">
               {(recipe.required_ingredients || []).map((ing, idx) => (
-                <li
-                  key={idx}
-                  className="list-group-item bg-transparent px-0"
-                >
+                <li key={idx} className="list-group-item bg-transparent px-0">
                   {ing}
                 </li>
               ))}
@@ -128,27 +188,26 @@ function RecipeModal({
           </Col>
           <Col md={6}>
             <h5 className="border-bottom pb-2">🔥 Instructions</h5>
-            <p
-              className="text-muted"
-              style={{ whiteSpace: "pre-line" }}
-            >
+            <p className="text-muted" style={{ whiteSpace: "pre-line" }}>
               {recipe.steps || "No detailed steps provided."}
             </p>
           </Col>
         </Row>
 
-        {/* 购物清单：缺少的食材 */}
+        {/* Shopping list (missing ingredients) */}
         {shoppingList && shoppingList.length > 0 && (
           <Row className="mt-4">
             <Col>
-              <h5 className="border-bottom pb-2">🧾 Missing ingredients</h5>
+              <h5 className="border-bottom pb-2">
+                🧾 Missing ingredients (Smart Shopping List)
+              </h5>
               <ul className="list-group list-group-flush">
                 {shoppingList.map((item, idx) => (
                   <li
                     key={idx}
-                    className="list-group-item bg-transparent px-0"
+                    className="list-group-item bg-transparent px-0 text-danger fw-bold"
                   >
-                    {item.ingredient}
+                    • {item.ingredient}
                     {item.qty ? ` — ${item.qty}` : ""}
                   </li>
                 ))}
@@ -167,7 +226,7 @@ function RecipeModal({
           onClick={() => onShoppingList && onShoppingList(recipe)}
           disabled={!onShoppingList}
         >
-          Shopping list
+          Generate Shopping list
         </Button>
         <Button
           variant="dark"
@@ -181,23 +240,7 @@ function RecipeModal({
   );
 }
 
-// ========== 主页面 ==========
-const COMMON_INGREDIENTS = [
-  "Egg",
-  "Tomato",
-  "Potato",
-  "Onion",
-  "Garlic",
-  "Chicken",
-  "Beef",
-  "Rice",
-  "Pasta",
-  "Milk",
-  "Cheese",
-  "Salt",
-  "Oil",
-];
-
+// ========== Main Page ==========
 function App() {
   const [activeTab, setActiveTab] = useState("pantry");
 
@@ -205,28 +248,29 @@ function App() {
   const [pantry, setPantry] = useState([]);
   const [inputValue, setInputValue] = useState("");
 
-  // 菜谱
+  // Recipes
   const [recipes, setRecipes] = useState([]);
   const [loading, setLoading] = useState(false);
   const [selectedRecipe, setSelectedRecipe] = useState(null);
 
-  // Shopping list（缺少的食材）
+  // Shopping list (missing ingredients)
   const [shoppingList, setShoppingList] = useState([]);
 
-  // 餐厅
+  // Restaurants
   const [restaurants, setRestaurants] = useState([]);
   const [resLoading, setResLoading] = useState(false);
 
-  // pantry 一变就刷新推荐
+  // Whenever pantry changes, refresh recommendations
   useEffect(() => {
     if (pantry.length > 0) {
       handleRecommend(pantry);
     } else {
       setRecipes([]);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pantry]);
 
-  // 添加食材
+  // Add ingredient to pantry
   const addIngredient = (ing) => {
     const cleanIng = ing.trim().toLowerCase();
     if (cleanIng && !pantry.includes(cleanIng)) {
@@ -235,12 +279,12 @@ function App() {
     setInputValue("");
   };
 
-  // 删除食材
+  // Remove ingredient
   const removeIngredient = (ingToRemove) => {
     setPantry(pantry.filter((i) => i !== ingToRemove));
   };
 
-  // 输入框回车
+  // Handle "Enter" in input
   const handleKeyDown = (e) => {
     if (e.key === "Enter") {
       e.preventDefault();
@@ -248,22 +292,22 @@ function App() {
     }
   };
 
-  // 调用 /recipes/recommend + /recipes/search-web
+  // Call /recipes/recommend + /recipes/search-web
   const handleRecommend = async (currentPantry) => {
     setLoading(true);
     try {
+      // 1. Local DB recipes
       const res = await axios.post(`${API_BASE}/recipes/recommend`, {
         ingredients: currentPantry,
       });
       let results = res.data.recipes || [];
 
-      // 本地菜谱太少，用 web 补
-      if (results.length < 2) {
+      // 2. Fetch web recipes if we still have room
+      if (results.length < 50) {
         try {
-          const webRes = await axios.post(
-            `${API_BASE}/recipes/search-web`,
-            { ingredients: currentPantry }
-          );
+          const webRes = await axios.post(`${API_BASE}/recipes/search-web`, {
+            ingredients: currentPantry,
+          });
 
           const webItems = (webRes.data.items || []).map((item, idx) => {
             const firstInstruction =
@@ -271,7 +315,8 @@ function App() {
                 ? item.instructions[0]
                 : "";
 
-            // 如果 web 返回 ingredients，则用；否则从文字里猜
+            // If backend provides ingredients, use them;
+            // otherwise guess from text
             const structuredIngredients =
               item.ingredients && item.ingredients.length > 0
                 ? item.ingredients
@@ -283,19 +328,34 @@ function App() {
               cuisine: "Web Discovery",
               match_ratio: item.score || 0.6,
               required_ingredients: structuredIngredients,
-              steps:
-                firstInstruction ||
-                "Open source link for full recipe.",
+              steps: firstInstruction || "Open source link for full recipe.",
               sourceUrl: item.url,
               image: item.image || null,
             };
           });
 
-          results = [...results, ...webItems];
+          // Merge local and web results
+          const combined = [...results, ...webItems];
+
+          // Remove duplicates based on name + (sourceUrl/url/id)
+          const uniqueMap = new Map();
+          combined.forEach((item) => {
+            const key = `${item.name}-${
+              item.sourceUrl || item.url || item.id
+            }`;
+            if (!uniqueMap.has(key)) {
+              uniqueMap.set(key, item);
+            }
+          });
+
+          results = Array.from(uniqueMap.values());
         } catch (e) {
           console.log("Web search failed", e);
         }
       }
+
+      // Final cap: show at most 50 ideas, no artificial cloning
+      results = results.slice(0, 50);
 
       setRecipes(results);
     } catch (err) {
@@ -305,7 +365,7 @@ function App() {
     setLoading(false);
   };
 
-  // 前端本地计算购物清单：required_ingredients - pantry
+  // Local shopping-list generation: required_ingredients - pantry
   const handleShoppingList = (recipe) => {
     if (!recipe) return;
 
@@ -323,13 +383,13 @@ function App() {
 
     const listItems = missing.map((name) => ({
       ingredient: name,
-      qty: 1,
+      qty: "1 pack/unit",
     }));
 
     setShoppingList(listItems);
   };
 
-  // 调用 /restaurants/search
+  // Call /restaurants/search
   const searchRestaurants = async (cuisineType) => {
     setResLoading(true);
     setRestaurants([]);
@@ -347,7 +407,7 @@ function App() {
 
   return (
     <div className="bg-light min-vh-100 d-flex flex-column">
-      {/* 顶部导航 */}
+      {/* Top Navbar */}
       <Navbar
         bg="white"
         className="shadow-sm border-bottom px-4"
@@ -379,18 +439,49 @@ function App() {
         </Nav>
       </Navbar>
 
-      {/* 主内容区 */}
+      {/* Main Content */}
       <Container fluid className="flex-grow-1">
         {activeTab === "pantry" ? (
           <Row className="h-100">
-            {/* 左侧：Pantry */}
+            {/* Left: Pantry */}
             <Col
               md={3}
               className="bg-white border-end h-100 p-4"
               style={{ minHeight: "90vh" }}
             >
-              <h5 className="mb-3">My Pantry ({pantry.length})</h5>
+              {/* Title + Clear All */}
+              <h5 className="mb-3 d-flex justify-content-between align-items-center">
+                <span>My Pantry ({pantry.length})</span>
+                {pantry.length > 0 && (
+                  <Button
+                    variant="link"
+                    className="text-danger text-decoration-none p-0 small fw-bold"
+                    style={{ fontSize: "0.85rem" }}
+                    onClick={() => setPantry([])}
+                  >
+                    Clear All
+                  </Button>
+                )}
+              </h5>
 
+              {/* Scan Fridge Demo Button */}
+              <Button
+                variant="outline-danger"
+                className="w-100 mb-3 shadow-sm d-flex align-items-center justify-content-center gap-2"
+                style={{ borderStyle: "dashed", borderWidth: "2px" }}
+                onClick={() => {
+                  const demoItems = ["tomato", "egg", "pepper", "beef"];
+                  const newPantry = [...new Set([...pantry, ...demoItems])];
+                  alert(
+                    "🤖 AI Vision analyzing...\n\nFound: Tomato, Egg, Pepper, Beef"
+                  );
+                  setPantry(newPantry);
+                }}
+              >
+                📷 Scan Fridge (AI Demo)
+              </Button>
+
+              {/* Input box */}
               <Form.Group className="mb-3 position-relative">
                 <Form.Control
                   placeholder="Type ingredient + Enter..."
@@ -401,6 +492,7 @@ function App() {
                 />
               </Form.Group>
 
+              {/* Current pantry badges */}
               <div className="d-flex flex-wrap gap-2 mb-4">
                 {pantry.map((item) => (
                   <Badge
@@ -415,12 +507,14 @@ function App() {
                   </Badge>
                 ))}
                 {pantry.length === 0 && (
-                  <span className="text-muted small">
-                    Your pantry is empty.
-                  </span>
+                  <div className="text-center w-100 text-muted small mt-2">
+                    <p>Your pantry is empty.</p>
+                    <p>👇 Use &quot;Scan Fridge&quot; or Quick Add below</p>
+                  </div>
                 )}
               </div>
 
+              {/* Quick Add */}
               <h6 className="text-muted text-uppercase small fw-bold mb-3">
                 Quick Add
               </h6>
@@ -439,10 +533,12 @@ function App() {
               </div>
             </Col>
 
-            {/* 右侧：推荐菜谱 */}
+            {/* Right: Recommended Recipes */}
             <Col md={9} className="p-4">
               <div className="d-flex justify-content-between align-items-center mb-3">
-                <h5 className="mb-0">What you can make:</h5>
+                <h5 className="mb-0">
+                  What you can make ({recipes.length} ideas):
+                </h5>
                 {loading && (
                   <div className="text-danger">
                     <Spinner animation="border" variant="danger" size="sm" />
@@ -452,15 +548,23 @@ function App() {
 
               <Row>
                 {recipes.map((recipe) => {
-                  // 真实图片：优先用后端给的 image，否则用 Unsplash 搜索菜名
+                  // Use backend image if available; otherwise placeholder
                   const cardImage = recipe.image
                     ? recipe.image
-                    : `https://source.unsplash.com/600x400/?${encodeURIComponent(
+                    : `https://placehold.co/600x400/EEE/31343C?text=${encodeURIComponent(
                         recipe.name
-                      )}`;
+                      )}&font=roboto`;
 
                   return (
-                    <Col lg={4} md={6} className="mb-4" key={recipe.id}>
+                    <Col
+                      xl={2}
+                      lg={3}
+                      md={4}
+                      sm={6}
+                      xs={12}
+                      className="mb-4"
+                      key={recipe.id}
+                    >
                       <Card
                         className="border-0 shadow-sm h-100 recipe-card"
                         style={{
@@ -492,8 +596,9 @@ function App() {
 
                           {typeof recipe.match_ratio === "number" && (
                             <Badge
-                              bg="light"
-                              text="dark"
+                              bg={
+                                recipe.match_ratio === 1 ? "success" : "warning"
+                              }
                               className="position-absolute top-0 end-0 m-2 shadow-sm"
                             >
                               Match: {Math.round(recipe.match_ratio * 100)}%
@@ -502,7 +607,7 @@ function App() {
                         </div>
 
                         <Card.Body>
-                          <Card.Title className="h6 fw-bold">
+                          <Card.Title className="h6 fw-bold text-truncate">
                             {recipe.name}
                           </Card.Title>
                           <Card.Text className="small text-muted">
@@ -515,64 +620,83 @@ function App() {
                 })}
 
                 {recipes.length === 0 && !loading && (
-                  <div className="text-center mt-5 text-muted">
-                    <h3>🥣</h3>
-                    <p>Add ingredients to your pantry to see recipes!</p>
+                  <div className="text-center mt-5 text-muted w-100">
+                    <h3 style={{ fontSize: "3rem" }}>🥣</h3>
+                    <p className="lead">
+                      Add ingredients to your pantry to see recipes!
+                    </p>
                   </div>
                 )}
               </Row>
             </Col>
           </Row>
         ) : (
-          // 餐厅 Tab
+          // Restaurants tab
           <Container className="py-5">
             <div className="text-center mb-5">
-              <h2>Find Nearby Restaurants</h2>
-              <div className="d-flex justify-content-center gap-2 mt-3">
-                {["Italian", "Chinese", "Japanese", "American", "Mexican"].map(
-                  (c) => (
-                    <Button
-                      key={c}
-                      variant="outline-danger"
-                      onClick={() => searchRestaurants(c)}
-                    >
-                      {c}
-                    </Button>
-                  )
-                )}
+              <h2 className="fw-bold">Find Nearby Restaurants</h2>
+              <p className="text-muted">
+                Based on location: Mansfield, CT (Simulated)
+              </p>
+              <div className="d-flex justify-content-center gap-2 mt-3 flex-wrap">
+                {[
+                  "Italian",
+                  "Chinese",
+                  "Japanese",
+                  "American",
+                  "Mexican",
+                  "Thai",
+                  "Indian",
+                ].map((c) => (
+                  <Button
+                    key={c}
+                    variant="outline-danger"
+                    className="rounded-pill px-4"
+                    onClick={() => searchRestaurants(c)}
+                  >
+                    {c}
+                  </Button>
+                ))}
               </div>
             </div>
 
             {resLoading && (
-              <div className="text-center">
-                <Spinner animation="border" />
+              <div className="text-center py-5">
+                <Spinner animation="border" variant="danger" />
               </div>
             )}
 
             <Row>
               {restaurants.map((res, idx) => (
                 <Col md={4} key={idx} className="mb-4">
-                  <Card className="border-0 shadow h-100">
+                  <Card className="border-0 shadow h-100 hover-shadow">
                     <Card.Body>
-                      <h5>{res.name}</h5>
-                      {res.rating && (
-                        <Badge bg="warning" text="dark">
-                          ⭐ {res.rating}
-                        </Badge>
-                      )}
-                      <p className="small text-muted mt-2">
-                        {res.address || res.vicinity}
+                      <div className="d-flex justify-content-between align-items-start">
+                        <h5 className="fw-bold">{res.name}</h5>
+                        {res.rating && (
+                          <Badge bg="warning" text="dark">
+                            ⭐ {res.rating}
+                          </Badge>
+                        )}
+                      </div>
+                      <p className="small text-muted mt-2 mb-0">
+                        📍 {res.address || res.vicinity}
                       </p>
                     </Card.Body>
                   </Card>
                 </Col>
               ))}
+              {!resLoading && restaurants.length === 0 && (
+                <div className="text-center text-muted w-100 py-5">
+                  Click a cuisine above to find restaurants.
+                </div>
+              )}
             </Row>
           </Container>
         )}
       </Container>
 
-      {/* 菜谱详情弹窗 */}
+      {/* Recipe detail modal */}
       <RecipeModal
         show={!!selectedRecipe}
         handleClose={() => {

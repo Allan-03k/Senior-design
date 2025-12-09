@@ -6,6 +6,7 @@ from flask import Flask, request, jsonify, Response
 from flask_cors import CORS
 from pydantic import ValidationError
 from dotenv import load_dotenv
+from requests import HTTPError
 
 from models import db, Recipe, RecipeIngredient
 from services.recipes import recommend_recipes, get_shopping_missing
@@ -30,43 +31,58 @@ db.init_app(app)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
-def ok(payload: dict, status=200): return jsonify(payload), status
-def err(code="BAD_REQUEST", message="bad request", status=400): return jsonify({"error": {"code": code, "message": message}}), status
+
+def ok(payload: dict, status=200):
+    return jsonify(payload), status
+
+
+def err(code="BAD_REQUEST", message="bad request", status=400):
+    return jsonify({"error": {"code": code, "message": message}}), status
+
 
 # Seed Data
 def init_data():
-    """If no data is found in the database, write some initial recipes."""
+    """If no data is found in the database, insert some initial recipes."""
     if Recipe.query.first():
         return
-    
+
     app.logger.info("Initializing database with seed data...")
     seeds = [
         {
-            "name": "Tomato Egg Stir-Fry", "cuisine": "Chinese",
+            "name": "Tomato Egg Stir-Fry",
+            "cuisine": "Chinese",
             "steps": "Beat eggs; stir-fry tomatoes; combine; season.",
-            "ings": [("tomato", "2"), ("egg", "3"), ("salt", "to taste"), ("oil", "1 tbsp")]
+            "ings": [("tomato", "2"), ("egg", "3"), ("salt", "to taste"), ("oil", "1 tbsp")],
         },
         {
-            "name": "Caprese Salad", "cuisine": "Italian",
+            "name": "Caprese Salad",
+            "cuisine": "Italian",
             "steps": "Slice tomatoes; add mozzarella & basil; drizzle olive oil.",
-            "ings": [("tomato", "2"), ("mozzarella", "120g"), ("basil", "few leaves"), ("olive oil", "1 tbsp")]
+            "ings": [
+                ("tomato", "2"),
+                ("mozzarella", "120g"),
+                ("basil", "few leaves"),
+                ("olive oil", "1 tbsp"),
+            ],
         },
         {
-            "name": "Cucumber Egg Roll", "cuisine": "Japanese",
+            "name": "Cucumber Egg Roll",
+            "cuisine": "Japanese",
             "steps": "Make thin omelet; add cucumber; roll and slice.",
-            "ings": [("egg", "3"), ("cucumber", "1"), ("salt", "pinch")]
-        }
+            "ings": [("egg", "3"), ("cucumber", "1"), ("salt", "pinch")],
+        },
     ]
-    
+
     for s in seeds:
         r = Recipe(name=s["name"], cuisine=s["cuisine"], steps=s["steps"])
         db.session.add(r)
         db.session.flush()
         for ing_name, qty in s["ings"]:
             db.session.add(RecipeIngredient(recipe_id=r.id, name=ing_name, qty=qty))
-    
+
     db.session.commit()
     app.logger.info("Database seeded!")
+
 
 with app.app_context():
     db.create_all()
@@ -74,12 +90,17 @@ with app.app_context():
 
 # --- Routes ---
 
+
 @app.get("/health")
-def health(): return ok({"status": "ok", "db": "connected"})
+def health():
+    return ok({"status": "ok", "db": "connected"})
+
 
 @app.post("/api/ingredients/recognize")
 def recognize():
-
+    """
+    Recognize ingredients from an uploaded image or from a mock hint string.
+    """
     if "image" in request.files:
         f = request.files["image"]
         data = recognize_from_file(f)
@@ -88,60 +109,107 @@ def recognize():
         data = recognize_from_hint(hint)
     return ok(RecognizeResponse(**data).model_dump())
 
+
 @app.post("/api/recipes/recommend")
 def recommend():
+    """
+    Recommend local recipes based on pantry ingredients.
+    """
     try:
         payload = RecommendRequest(**(request.get_json(force=True) or {}))
     except ValidationError as e:
         return err(message=e.errors()[0]["msg"])
-    
+
     results = recommend_recipes(payload.ingredients)
     return ok(RecommendResponse(recipes=results).model_dump())
 
+
 @app.post("/api/shopping-list")
 def shopping_list():
+    """
+    Compute missing ingredients for a selected recipe given the user's pantry.
+    """
     try:
         payload = ShoppingListRequest(**(request.get_json(force=True) or {}))
     except ValidationError as e:
         return err(message=e.errors()[0]["msg"])
-    
+
     missing = get_shopping_missing(payload.recipe_id, payload.ingredients)
     if missing is None:
         return err("NOT_FOUND", "recipe not found", 404)
-        
+
     return ok(ShoppingListResponse(missing=missing).model_dump())
+
 
 @app.post("/api/recipes/search-web")
 def search_web():
+    """
+    Search recipes from the web using Google Custom Search.
+
+    The heavy lifting (including SQLite caching and Google quota
+    handling) is done inside discover_recipes_from_web().
+    Here we only:
+    - validate input
+    - catch HTTPError so that 429 / quota issues will not crash the API
+    """
     data = request.get_json(force=True) or {}
     ingredients = data.get("ingredients", [])
     cuisine = data.get("cuisine")
+
     if not ingredients:
         return err("BAD_REQUEST", "ingredients required")
-    items = discover_recipes_from_web(ingredients, cuisine=cuisine, limit=5)
+
+    try:
+        # Use a small limit here; discover_recipes_from_web will also
+        # read/write from cache to save quota.
+        items = discover_recipes_from_web(
+            ingredients=ingredients,
+            cuisine=cuisine,
+            limit=10,
+        )
+    except HTTPError as e:
+        app.logger.error("search_web HTTPError: %s", e)
+        # When Google quota is exceeded we gracefully return an empty list
+        items = []
+    except Exception as e:
+        app.logger.error("search_web failed: %s", e)
+        items = []
+
     return ok({"items": items})
+
 
 @app.get("/api/restaurants/search")
 def restaurants():
+    """
+    Search nearby restaurants using Google Places API (simple wrapper).
+    """
     cuisine = request.args.get("cuisine", "Italian")
     try:
         lat = float(request.args.get("lat", "41.76"))
         lng = float(request.args.get("lng", "-72.67"))
     except ValueError:
         return err(message="invalid lat/lng")
-    
-    # Call the real Places Service
+
     results = search_restaurants(cuisine, lat, lng)
     return ok({"cuisine": cuisine, "results": results})
 
+
 @app.get("/openapi.json")
 def openapi():
+    """
+    Serve the OpenAPI spec used by Swagger UI.
+    """
     with open("openapi.json", "r", encoding="utf-8") as f:
         return jsonify(json.load(f))
 
+
 @app.get("/docs")
 def docs():
-    return Response("""
+    """
+    Simple Swagger UI host page.
+    """
+    return Response(
+        """
     <!DOCTYPE html>
     <html lang="en">
     <head>
@@ -162,7 +230,9 @@ def docs():
         </script>
     </body>
     </html>
-    """, mimetype="text/html")
+    """,
+        mimetype="text/html",
+    )
 
 
 if __name__ == "__main__":
