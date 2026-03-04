@@ -22,8 +22,11 @@ load_dotenv()
 
 app = Flask(__name__)
 CORS(app, resources={r"/api/*": {"origins": "*"}})
+os.makedirs(app.instance_path, exist_ok=True)
 
-app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///smartcuisine.db"
+db_path = os.path.join(app.instance_path, "smartcuisine.db")
+
+app.config["SQLALCHEMY_DATABASE_URI"] = f"sqlite:///{db_path}"
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["MAX_CONTENT_LENGTH"] = 5 * 1024 * 1024
 
@@ -116,7 +119,7 @@ def recommend():
     Recommend local recipes based on pantry ingredients.
     """
     try:
-        payload = RecommendRequest(**(request.get_json(force=True) or {}))
+        payload = RecommendRequest(**(request.get_json(silent=True) or {}))
     except ValidationError as e:
         return err(message=e.errors()[0]["msg"])
 
@@ -130,7 +133,7 @@ def shopping_list():
     Compute missing ingredients for a selected recipe given the user's pantry.
     """
     try:
-        payload = ShoppingListRequest(**(request.get_json(force=True) or {}))
+        payload = ShoppingListRequest(**(request.get_json(silent=True) or {}))
     except ValidationError as e:
         return err(message=e.errors()[0]["msg"])
 
@@ -152,7 +155,7 @@ def search_web():
     - validate input
     - catch HTTPError so that 429 / quota issues will not crash the API
     """
-    data = request.get_json(force=True) or {}
+    data = request.get_json(silent=True) or {}
     ingredients = data.get("ingredients", [])
     cuisine = data.get("cuisine")
 
@@ -196,10 +199,8 @@ def restaurants():
 
 @app.get("/openapi.json")
 def openapi():
-    """
-    Serve the OpenAPI spec used by Swagger UI.
-    """
-    with open("openapi.json", "r", encoding="utf-8") as f:
+    spec_path = os.path.join(os.path.dirname(__file__), "openapi.json")
+    with open(spec_path, "r", encoding="utf-8") as f:
         return jsonify(json.load(f))
 
 

@@ -9,9 +9,6 @@ import requests
 from models import db, WebRecipeCache
 
 
-GOOGLE_KEY = os.getenv("GOOGLE_API_KEY")
-GOOGLE_CX = os.getenv("GOOGLE_CSE_ID")
-
 # Simple user-agent string for Google requests
 UA = {"User-Agent": "SmartCuisineBot/0.1 (+https://example.com/contact)"}
 
@@ -36,31 +33,42 @@ def _make_cache_key(ingredients: List[str], cuisine: Optional[str]) -> str:
 
 
 def _google_search(query: str, count: int = 10) -> List[Dict[str, Any]]:
-    """
-    Low-level helper to call Google Custom Search JSON API.
+    google_key = os.getenv("GOOGLE_API_KEY")
+    google_cx = os.getenv("GOOGLE_CSE_ID")
 
-    We keep `count` small (10) to reduce daily quota usage.
-    """
-    if not GOOGLE_KEY or not GOOGLE_CX:
-        raise RuntimeError(
-            "Google API key or CX not set (GOOGLE_API_KEY / GOOGLE_CSE_ID)"
-        )
+    if not google_key or not google_cx:
+        raise RuntimeError("Google API key or CX not set (GOOGLE_API_KEY / GOOGLE_CSE_ID)")
 
     url = "https://www.googleapis.com/customsearch/v1"
-    params = {
-        "key": GOOGLE_KEY,
-        "cx": GOOGLE_CX,
-        "q": f"{query} recipe",
-        "num": count,
-    }
+    params = {"key": google_key, "cx": google_cx, "q": f"{query} recipe", "num": count}
 
     resp = requests.get(url, params=params, headers=UA, timeout=12)
-    # This may raise HTTPError(429) when quota is exceeded
     resp.raise_for_status()
+    return (resp.json().get("items") or [])
 
-    data = resp.json()
-    return data.get("items") or []
+def extract_image_url(it: Dict[str, Any]) -> Optional[str]:
+    pagemap = it.get("pagemap") or {}
 
+    cse_image = pagemap.get("cse_image") or []
+    if cse_image and isinstance(cse_image, list):
+        src = (cse_image[0] or {}).get("src")
+        if src:
+            return src
+
+    cse_thumb = pagemap.get("cse_thumbnail") or []
+    if cse_thumb and isinstance(cse_thumb, list):
+        src = (cse_thumb[0] or {}).get("src")
+        if src:
+            return src
+
+    metatags = pagemap.get("metatags") or []
+    if metatags and isinstance(metatags, list):
+        m0 = metatags[0] or {}
+        og = m0.get("og:image") or m0.get("twitter:image")
+        if og:
+            return og
+
+    return None
 
 def score_by_text(text: str, ingredients: List[str]) -> float:
     """
@@ -120,9 +128,16 @@ def discover_recipes_from_web(
             pass
 
     # --- 2) Build query string for Google ---
-    query = " ".join(ingredients)
+    normalized_ings = sorted(
+    i.strip().lower()
+    for i in ingredients
+    if isinstance(i, str) and i.strip()
+)
+
+    query = " ".join(normalized_ings)
+
     if cuisine:
-        query += f" {cuisine}"
+        query += f" {cuisine.strip().lower()}"
 
     # --- 3) Call Google CSE (may raise HTTPError 429) ---
     try:
@@ -141,19 +156,23 @@ def discover_recipes_from_web(
     # --- 4) Transform raw items into simplified recipe dicts ---
     results: List[Dict[str, Any]] = []
     for it in raw_items:
-        title = it.get("title", "Untitled Recipe")
         link = it.get("link")
-        snippet = it.get("snippet", "")
+        if not link:
+            continue
+        title = it.get("title") or "Untitled Recipe"
+        snippet = it.get("snippet") or ""
 
         text = (title + " " + snippet).lower()
         score = score_by_text(text, ingredients)
+
+        img = extract_image_url(it)
 
         results.append(
             {
                 "name": title,
                 "url": link,
-                "image": None,            # We are not parsing images here yet
-                "ingredients": [],        # Could be parsed later if needed
+                "image": img,
+                "ingredients": [],
                 "instructions": [snippet] if snippet else [],
                 "score": score,
             }
