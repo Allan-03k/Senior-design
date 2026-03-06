@@ -11,8 +11,9 @@ from requests import HTTPError
 from models import db, Recipe, RecipeIngredient
 from services.recipes import recommend_recipes, get_shopping_missing
 from services.places import search_restaurants
-from services.vision import recognize_from_file, recognize_from_hint
 from services.webrecipes import discover_recipes_from_web
+from services.vision import debug_detect_all
+from flask import request, jsonify
 from schemas.dto import (
     RecognizeResponse, RecommendRequest, RecommendResponse,
     ShoppingListRequest, ShoppingListResponse
@@ -98,6 +99,20 @@ with app.app_context():
 def health():
     return ok({"status": "ok", "db": "connected"})
 
+@app.post("/api/ingredients/recognize")
+def recognize_ingredients():
+    if "image" not in request.files:
+        return jsonify({"error": "No image uploaded"}), 400
+
+    file = request.files["image"]
+
+    if not file.filename:
+        return jsonify({"error": "Empty filename"}), 400
+
+    image_bytes = file.read()
+    result = debug_detect_all(image_bytes)
+
+    return jsonify(result)
 
 @app.post("/api/ingredients/recognize")
 def recognize():

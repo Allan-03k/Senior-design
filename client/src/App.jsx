@@ -20,7 +20,6 @@ const API_BASE = "http://localhost:5001/api";
 
 // Common ingredients for "Quick Add"
 const COMMON_INGREDIENTS = [
-  // Protein
   "Egg",
   "Chicken",
   "Beef",
@@ -29,8 +28,6 @@ const COMMON_INGREDIENTS = [
   "Shrimp",
   "Tofu",
   "Bacon",
-
-  // Carbs
   "Rice",
   "Pasta",
   "Noodles",
@@ -38,15 +35,11 @@ const COMMON_INGREDIENTS = [
   "Tortilla",
   "Potato",
   "Sweet Potato",
-
-  // Dairy
   "Milk",
   "Yogurt",
   "Cheese",
   "Butter",
   "Cream",
-
-  // Vegetables
   "Tomato",
   "Onion",
   "Garlic",
@@ -60,8 +53,6 @@ const COMMON_INGREDIENTS = [
   "Mushroom",
   "Corn",
   "Green Onion",
-
-  // Seasoning & sauces
   "Salt",
   "Pepper",
   "Sugar",
@@ -73,8 +64,6 @@ const COMMON_INGREDIENTS = [
   "Tomato Sauce",
   "Ketchup",
   "Mayonnaise",
-
-  // Others
   "Ginger",
   "Chili",
   "Lemon",
@@ -186,6 +175,7 @@ function RecipeModal({
               )}
             </ul>
           </Col>
+
           <Col md={6}>
             <h5 className="border-bottom pb-2">🔥 Instructions</h5>
             <p className="text-muted" style={{ whiteSpace: "pre-line" }}>
@@ -194,7 +184,6 @@ function RecipeModal({
           </Col>
         </Row>
 
-        {/* Shopping list (missing ingredients) */}
         {shoppingList && shoppingList.length > 0 && (
           <Row className="mt-4">
             <Col>
@@ -226,7 +215,7 @@ function RecipeModal({
           onClick={() => onShoppingList && onShoppingList(recipe)}
           disabled={!onShoppingList}
         >
-          Generate Shopping list
+          Generate Shopping List
         </Button>
         <Button
           variant="dark"
@@ -234,6 +223,84 @@ function RecipeModal({
           disabled={!(recipe.sourceUrl || recipe.url)}
         >
           Start Cooking
+        </Button>
+      </Modal.Footer>
+    </Modal>
+  );
+}
+
+// ========== Scan Fridge Modal ==========
+function ScanFridgeModal({
+  show,
+  handleClose,
+  scanFile,
+  setScanFile,
+  scanPreview,
+  setScanPreview,
+  scanError,
+  scanLoading,
+  handleAnalyze,
+}) {
+  const handleFileChange = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setScanFile(file);
+    setScanPreview(URL.createObjectURL(file));
+  };
+
+  return (
+    <Modal show={show} onHide={handleClose} centered>
+      <Modal.Header closeButton>
+        <Modal.Title>Upload Picture</Modal.Title>
+      </Modal.Header>
+
+      <Modal.Body>
+        <p className="text-muted mb-3">
+          Upload a clear ingredient photo for AI recognition.
+        </p>
+
+        <Form.Group className="mb-3">
+          <Form.Control type="file" accept="image/*" onChange={handleFileChange} />
+        </Form.Group>
+
+        {scanPreview && (
+          <div className="text-center mb-3">
+            <img
+              src={scanPreview}
+              alt="Preview"
+              style={{
+                maxWidth: "100%",
+                maxHeight: "260px",
+                borderRadius: "12px",
+                border: "1px solid #ddd",
+              }}
+            />
+          </div>
+        )}
+
+        {scanFile && (
+          <div className="small text-muted mb-2">
+            Selected file: {scanFile.name}
+          </div>
+        )}
+
+        {scanError && <div className="text-danger small">{scanError}</div>}
+      </Modal.Body>
+
+      <Modal.Footer>
+        <Button variant="outline-secondary" onClick={handleClose}>
+          Cancel
+        </Button>
+        <Button variant="danger" onClick={handleAnalyze} disabled={scanLoading}>
+          {scanLoading ? (
+            <>
+              <Spinner animation="border" size="sm" className="me-2" />
+              Analyzing...
+            </>
+          ) : (
+            "Analyze"
+          )}
         </Button>
       </Modal.Footer>
     </Modal>
@@ -253,12 +320,19 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [selectedRecipe, setSelectedRecipe] = useState(null);
 
-  // Shopping list (missing ingredients)
+  // Shopping list
   const [shoppingList, setShoppingList] = useState([]);
 
   // Restaurants
   const [restaurants, setRestaurants] = useState([]);
   const [resLoading, setResLoading] = useState(false);
+
+  // Vision scan modal
+  const [showScanModal, setShowScanModal] = useState(false);
+  const [scanLoading, setScanLoading] = useState(false);
+  const [scanError, setScanError] = useState("");
+  const [scanFile, setScanFile] = useState(null);
+  const [scanPreview, setScanPreview] = useState("");
 
   // Whenever pantry changes, refresh recommendations
   useEffect(() => {
@@ -284,7 +358,7 @@ function App() {
     setPantry(pantry.filter((i) => i !== ingToRemove));
   };
 
-  // Handle "Enter" in input
+  // Handle Enter in input
   const handleKeyDown = (e) => {
     if (e.key === "Enter") {
       e.preventDefault();
@@ -292,17 +366,83 @@ function App() {
     }
   };
 
+  // Open scan modal
+  const handleOpenScanModal = () => {
+    setShowScanModal(true);
+    setScanError("");
+  };
+
+  // Close scan modal
+  const handleCloseScanModal = () => {
+    setShowScanModal(false);
+    setScanLoading(false);
+    setScanError("");
+    setScanFile(null);
+    setScanPreview("");
+  };
+
+  // Upload image to backend and add detected ingredients to pantry
+  const handleAnalyzeFridgeImage = async () => {
+    if (!scanFile) {
+      setScanError("Please upload a picture first.");
+      return;
+    }
+
+    try {
+      setScanLoading(true);
+      setScanError("");
+
+      const formData = new FormData();
+      formData.append("image", scanFile);
+
+      const res = await axios.post(
+        `${API_BASE}/ingredients/recognize`,
+        formData,
+        {
+          headers: {
+            "Content-Type": "multipart/form-data",
+          },
+        }
+      );
+
+      const detected = res.data.ingredients || [];
+
+      if (detected.length === 0) {
+        setScanError(
+          "No clear ingredients detected. Try a closer and clearer photo."
+        );
+        return;
+      }
+
+      setPantry((prev) => {
+        const merged = [...prev];
+        detected.forEach((item) => {
+          const normalized = String(item).trim().toLowerCase();
+          if (normalized && !merged.includes(normalized)) {
+            merged.push(normalized);
+          }
+        });
+        return merged;
+      });
+
+      handleCloseScanModal();
+    } catch (err) {
+      console.error("Vision scan error:", err);
+      setScanError("Failed to analyze image.");
+    } finally {
+      setScanLoading(false);
+    }
+  };
+
   // Call /recipes/recommend + /recipes/search-web
   const handleRecommend = async (currentPantry) => {
     setLoading(true);
     try {
-      // 1. Local DB recipes
       const res = await axios.post(`${API_BASE}/recipes/recommend`, {
         ingredients: currentPantry,
       });
       let results = res.data.recipes || [];
 
-      // 2. Fetch web recipes if we still have room
       if (results.length < 50) {
         try {
           const webRes = await axios.post(`${API_BASE}/recipes/search-web`, {
@@ -315,8 +455,6 @@ function App() {
                 ? item.instructions[0]
                 : "";
 
-            // If backend provides ingredients, use them;
-            // otherwise guess from text
             const structuredIngredients =
               item.ingredients && item.ingredients.length > 0
                 ? item.ingredients
@@ -334,15 +472,11 @@ function App() {
             };
           });
 
-          // Merge local and web results
           const combined = [...results, ...webItems];
 
-          // Remove duplicates based on name + (sourceUrl/url/id)
           const uniqueMap = new Map();
           combined.forEach((item) => {
-            const key = `${item.name}-${
-              item.sourceUrl || item.url || item.id
-            }`;
+            const key = `${item.name}-${item.sourceUrl || item.url || item.id}`;
             if (!uniqueMap.has(key)) {
               uniqueMap.set(key, item);
             }
@@ -354,9 +488,7 @@ function App() {
         }
       }
 
-      // Final cap: show at most 50 ideas, no artificial cloning
       results = results.slice(0, 50);
-
       setRecipes(results);
     } catch (err) {
       console.error("Recommend error:", err);
@@ -365,7 +497,7 @@ function App() {
     setLoading(false);
   };
 
-  // Local shopping-list generation: required_ingredients - pantry
+  // Local shopping-list generation
   const handleShoppingList = (recipe) => {
     if (!recipe) return;
 
@@ -407,7 +539,6 @@ function App() {
 
   return (
     <div className="bg-light min-vh-100 d-flex flex-column">
-      {/* Top Navbar */}
       <Navbar
         bg="white"
         className="shadow-sm border-bottom px-4"
@@ -439,7 +570,6 @@ function App() {
         </Nav>
       </Navbar>
 
-      {/* Main Content */}
       <Container fluid className="flex-grow-1">
         {activeTab === "pantry" ? (
           <Row className="h-100">
@@ -449,7 +579,6 @@ function App() {
               className="bg-white border-end h-100 p-4"
               style={{ minHeight: "90vh" }}
             >
-              {/* Title + Clear All */}
               <h5 className="mb-3 d-flex justify-content-between align-items-center">
                 <span>My Pantry ({pantry.length})</span>
                 {pantry.length > 0 && (
@@ -464,24 +593,16 @@ function App() {
                 )}
               </h5>
 
-              {/* Scan Fridge Demo Button */}
+              {/* Scan Fridge Button */}
               <Button
                 variant="outline-danger"
                 className="w-100 mb-3 shadow-sm d-flex align-items-center justify-content-center gap-2"
                 style={{ borderStyle: "dashed", borderWidth: "2px" }}
-                onClick={() => {
-                  const demoItems = ["tomato", "egg", "pepper", "beef"];
-                  const newPantry = [...new Set([...pantry, ...demoItems])];
-                  alert(
-                    "🤖 AI Vision analyzing...\n\nFound: Tomato, Egg, Pepper, Beef"
-                  );
-                  setPantry(newPantry);
-                }}
+                onClick={handleOpenScanModal}
               >
-                📷 Scan Fridge (AI Demo)
+                📷 Scan Fridge
               </Button>
 
-              {/* Input box */}
               <Form.Group className="mb-3 position-relative">
                 <Form.Control
                   placeholder="Type ingredient + Enter..."
@@ -492,7 +613,6 @@ function App() {
                 />
               </Form.Group>
 
-              {/* Current pantry badges */}
               <div className="d-flex flex-wrap gap-2 mb-4">
                 {pantry.map((item) => (
                   <Badge
@@ -509,12 +629,11 @@ function App() {
                 {pantry.length === 0 && (
                   <div className="text-center w-100 text-muted small mt-2">
                     <p>Your pantry is empty.</p>
-                    <p>👇 Use &quot;Scan Fridge&quot; or Quick Add below</p>
+                    <p>👇 Use "Scan Fridge" or Quick Add below</p>
                   </div>
                 )}
               </div>
 
-              {/* Quick Add */}
               <h6 className="text-muted text-uppercase small fw-bold mb-3">
                 Quick Add
               </h6>
@@ -548,7 +667,6 @@ function App() {
 
               <Row>
                 {recipes.map((recipe) => {
-                  // Use backend image if available; otherwise placeholder
                   const cardImage = recipe.image
                     ? recipe.image
                     : `https://placehold.co/600x400/EEE/31343C?text=${encodeURIComponent(
@@ -631,7 +749,6 @@ function App() {
             </Col>
           </Row>
         ) : (
-          // Restaurants tab
           <Container className="py-5">
             <div className="text-center mb-5">
               <h2 className="fw-bold">Find Nearby Restaurants</h2>
@@ -696,7 +813,6 @@ function App() {
         )}
       </Container>
 
-      {/* Recipe detail modal */}
       <RecipeModal
         show={!!selectedRecipe}
         handleClose={() => {
@@ -706,6 +822,18 @@ function App() {
         recipe={selectedRecipe}
         onShoppingList={handleShoppingList}
         shoppingList={shoppingList}
+      />
+
+      <ScanFridgeModal
+        show={showScanModal}
+        handleClose={handleCloseScanModal}
+        scanFile={scanFile}
+        setScanFile={setScanFile}
+        scanPreview={scanPreview}
+        setScanPreview={setScanPreview}
+        scanError={scanError}
+        scanLoading={scanLoading}
+        handleAnalyze={handleAnalyzeFridgeImage}
       />
     </div>
   );
