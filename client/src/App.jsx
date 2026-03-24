@@ -1,5 +1,5 @@
 // client/src/App.jsx
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import axios from "axios";
 import {
   Container,
@@ -68,6 +68,9 @@ const COMMON_INGREDIENTS = [
   "Chili",
   "Lemon",
   "Lime",
+  "Orange",
+  "Cabbage",
+  "Pineapple"
 ];
 
 // Simple dictionary used to guess ingredients from a text snippet
@@ -116,6 +119,90 @@ function extractIngredientsFromText(text) {
   });
 
   return found;
+}
+
+function normalizeIngredientText(text) {
+  if (!text) return "";
+  let s = String(text).toLowerCase();
+  s = s.replace(/^[\u2022\-*]+\s*/g, "");
+  s = s.replace(/\([^)]*\)/g, " ");
+  s = s.replace(/[,:;|]/g, " ");
+  s = s.replace(/\s+/g, " ").trim();
+
+  // Remove leading quantity fragments like "1", "1/2", "1.5"
+  s = s.replace(/^(\d+([./]\d+)?|[¼½¾⅓⅔⅛⅜⅝⅞])\s*/g, "");
+
+  // Remove common leading units/descriptors often found in scraped lines.
+  s = s.replace(
+    /^(cups?|cup|tbsp|tsp|teaspoons?|tablespoons?|oz|ounces?|lb|pounds?|g|kg|ml|l|cloves?|slices?|cans?|packages?|pinch|large|small|medium)\s+/g,
+    ""
+  );
+
+  // Remove prep words from ingredient tails, e.g. "onion, chopped".
+  s = s.replace(
+    /\b(chopped|minced|diced|sliced|fresh|optional|to taste|divided|for serving)\b/g,
+    " "
+  );
+  s = s.replace(/\s+/g, " ").trim();
+
+  // Lightweight singularization for matching pantry words.
+  if (s.endsWith("es") && s.length > 4) s = s.slice(0, -2);
+  else if (s.endsWith("s") && s.length > 3) s = s.slice(0, -1);
+  return s.trim();
+}
+
+function isMetaIngredientLine(raw) {
+  if (!raw) return true;
+  const s = String(raw).trim().toLowerCase();
+  if (!s) return true;
+  if (s === "or" || s === "optional") return true;
+  if (s.endsWith(":") && /^(optional|for|for garnish|for garnishing)/.test(s)) {
+    return true;
+  }
+  return /^(optional|or|for garnish|for garnishing)\b/.test(s);
+}
+
+function getIngredientCandidates(raw) {
+  if (isMetaIngredientLine(raw)) return [];
+  const cleanedRaw = String(raw).replace(/\*/g, " ").replace(/\s+/g, " ").trim();
+  if (!cleanedRaw) return [];
+
+  const parts = cleanedRaw
+    .split(/\s+\bor\b\s+|\s*\/\s*/i)
+    .map((p) => normalizeIngredientText(p))
+    .filter(Boolean)
+    .filter((p) => !isMetaIngredientLine(p))
+    .filter((p) => p.length >= 2);
+
+  return [...new Set(parts)];
+}
+
+function pickDisplayIngredient(raw) {
+  const candidates = getIngredientCandidates(raw);
+  if (candidates.length === 0) return "";
+
+  // Prefer two-word phrase for readability, fallback to first candidate.
+  const phrase = candidates.find((c) => c.includes(" "));
+  return phrase || candidates[0];
+}
+
+function hasPantryMatch(rawIngredient, pantrySet) {
+  const candidates = getIngredientCandidates(rawIngredient);
+  if (candidates.length === 0) return true;
+
+  return candidates.some((norm) => {
+    if (pantrySet.has(norm)) return true;
+
+    const tokens = norm.split(" ").filter(Boolean);
+    if (tokens.length === 0) return false;
+
+    for (let i = 0; i < tokens.length - 1; i += 1) {
+      const phrase = `${tokens[i]} ${tokens[i + 1]}`;
+      if (pantrySet.has(phrase)) return true;
+    }
+
+    return tokens.some((t) => pantrySet.has(t));
+  });
 }
 
 // ========== Recipe Detail Modal ==========
@@ -188,7 +275,8 @@ function RecipeModal({
           <Row className="mt-4">
             <Col>
               <h5 className="border-bottom pb-2">
-                🧾 Missing ingredients (Smart Shopping List)
+                🧾 Missing ingredients
+                {shoppingList?.length ? ` (${shoppingList.length})` : ""} (Smart Shopping List)
               </h5>
               <ul className="list-group list-group-flush">
                 {shoppingList.map((item, idx) => (
@@ -197,7 +285,6 @@ function RecipeModal({
                     className="list-group-item bg-transparent px-0 text-danger fw-bold"
                   >
                     • {item.ingredient}
-                    {item.qty ? ` — ${item.qty}` : ""}
                   </li>
                 ))}
               </ul>
@@ -333,16 +420,31 @@ function App() {
   const [scanError, setScanError] = useState("");
   const [scanFile, setScanFile] = useState(null);
   const [scanPreview, setScanPreview] = useState("");
+  const webRecipeCacheRef = useRef(new Map());
+  const activeRecommendControllerRef = useRef(null);
+  const latestRecommendTokenRef = useRef(0);
 
   // Whenever pantry changes, refresh recommendations
   useEffect(() => {
-    if (pantry.length > 0) {
-      handleRecommend(pantry);
-    } else {
-      setRecipes([]);
-    }
+    const timer = setTimeout(() => {
+      if (pantry.length > 0) {
+        handleRecommend(pantry);
+      } else {
+        setRecipes([]);
+      }
+    }, 700);
+
+    return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pantry]);
+
+  useEffect(() => {
+    return () => {
+      if (activeRecommendControllerRef.current) {
+        activeRecommendControllerRef.current.abort();
+      }
+    };
+  }, []);
 
   // Add ingredient to pantry
   const addIngredient = (ing) => {
@@ -436,18 +538,58 @@ function App() {
 
   // Call /recipes/recommend + /recipes/search-web
   const handleRecommend = async (currentPantry) => {
+    const requestToken = Date.now();
+    latestRecommendTokenRef.current = requestToken;
+    if (activeRecommendControllerRef.current) {
+      activeRecommendControllerRef.current.abort();
+    }
+    const controller = new AbortController();
+    activeRecommendControllerRef.current = controller;
+
+    const normalizedPantry = currentPantry
+      .map((i) => normalizeIngredientText(i))
+      .filter(Boolean);
+    const pantryKey = [...new Set(normalizedPantry)].sort().join("|");
+
     setLoading(true);
     try {
-      const res = await axios.post(`${API_BASE}/recipes/recommend`, {
-        ingredients: currentPantry,
-      });
+      const res = await axios.post(
+        `${API_BASE}/recipes/recommend`,
+        {
+          ingredients: currentPantry,
+        },
+        { signal: controller.signal }
+      );
       let results = res.data.recipes || [];
+      // Show fast local results first.
+      setRecipes(results.slice(0, 50));
 
-      if (results.length < 50) {
-        try {
-          const webRes = await axios.post(`${API_BASE}/recipes/search-web`, {
-            ingredients: currentPantry,
+      // Web parsing is expensive: skip when pantry is too small.
+      if (results.length < 50 && normalizedPantry.length >= 2) {
+        if (webRecipeCacheRef.current.has(pantryKey)) {
+          const cachedWeb = webRecipeCacheRef.current.get(pantryKey) || [];
+          const combinedCached = [...results, ...cachedWeb];
+          const uniqueCached = new Map();
+          combinedCached.forEach((item) => {
+            const key = `${item.name}-${item.sourceUrl || item.url || item.id}`;
+            if (!uniqueCached.has(key)) uniqueCached.set(key, item);
           });
+          results = Array.from(uniqueCached.values()).slice(0, 50);
+          if (latestRecommendTokenRef.current === requestToken) {
+            setRecipes(results);
+          }
+          setLoading(false);
+          return;
+        }
+
+        try {
+          const webRes = await axios.post(
+            `${API_BASE}/recipes/search-web`,
+            {
+              ingredients: currentPantry,
+            },
+            { signal: controller.signal }
+          );
 
           const webItems = (webRes.data.items || []).map((item, idx) => {
             const firstInstruction =
@@ -471,6 +613,7 @@ function App() {
               image: item.image || null,
             };
           });
+          webRecipeCacheRef.current.set(pantryKey, webItems);
 
           const combined = [...results, ...webItems];
 
@@ -484,17 +627,25 @@ function App() {
 
           results = Array.from(uniqueMap.values());
         } catch (e) {
-          console.log("Web search failed", e);
+          if (e?.name !== "CanceledError" && e?.code !== "ERR_CANCELED") {
+            console.log("Web search failed", e);
+          }
         }
       }
 
       results = results.slice(0, 50);
-      setRecipes(results);
+      if (latestRecommendTokenRef.current === requestToken) {
+        setRecipes(results);
+      }
     } catch (err) {
-      console.error("Recommend error:", err);
-      setRecipes([]);
+      if (err?.name !== "CanceledError" && err?.code !== "ERR_CANCELED") {
+        console.error("Recommend error:", err);
+        setRecipes([]);
+      }
     }
-    setLoading(false);
+    if (latestRecommendTokenRef.current === requestToken) {
+      setLoading(false);
+    }
   };
 
   // Local shopping-list generation
@@ -508,15 +659,21 @@ function App() {
       return;
     }
 
-    const pantrySet = new Set(pantry.map((p) => p.toLowerCase()));
-    const missing = required.filter(
-      (ing) => !pantrySet.has(String(ing).toLowerCase())
+    const pantrySet = new Set(
+      pantry.map((p) => normalizeIngredientText(p)).filter(Boolean)
     );
+    const missing = required.filter((ing) => !hasPantryMatch(ing, pantrySet));
 
-    const listItems = missing.map((name) => ({
-      ingredient: name,
-      qty: "1 pack/unit",
-    }));
+    const listItems = [];
+    const seen = new Set();
+    missing.forEach((name) => {
+      const displayName = pickDisplayIngredient(name);
+      if (!displayName || seen.has(displayName)) return;
+      seen.add(displayName);
+      listItems.push({
+        ingredient: displayName,
+      });
+    });
 
     setShoppingList(listItems);
   };

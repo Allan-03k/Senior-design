@@ -13,6 +13,8 @@ IGNORE_LABELS = {
     "plant",
     "vegetable",
     "fruit",
+    "natural foods",
+    "food group",
     "kitchen appliance",
     "major appliance",
     "home appliance",
@@ -48,11 +50,12 @@ LABEL_MAP = {
     "egg yolk": "egg",
     "boiled egg": "egg",
     "fried egg": "egg",
-    "meat": None,
-    "seafood": None,
     "leaf vegetable": "lettuce",
     "salad greens": "lettuce",
+    "bush tomato": "tomato",
+    "plum tomato": "tomato",
 }
+
 
 KNOWN_FOODS = {
     "tomato",
@@ -65,10 +68,12 @@ KNOWN_FOODS = {
     "potato",
     "carrot",
     "broccoli",
+    "cabbage",
     "pepper",
     "apple",
     "banana",
     "orange",
+    "pineapple",
     "mushroom",
     "lettuce",
     "cucumber",
@@ -92,8 +97,8 @@ KNOWN_FOODS = {
     "avocado",
 }
 
-MIN_LABEL_SCORE = 0.60
-MIN_OBJECT_SCORE = 0.60
+MIN_LABEL_SCORE = 0.10
+MIN_OBJECT_SCORE = 0.10
 
 
 def _normalize_name(name: str) -> str | None:
@@ -132,6 +137,10 @@ def _extract_candidates(data: Dict[str, Any]) -> List[str]:
 
         if name in KNOWN_FOODS:
             candidates.append(name)
+            continue
+
+        if " " not in name:
+            candidates.append(name)
 
     # 2) object localization
     for obj in object_annotations:
@@ -149,6 +158,10 @@ def _extract_candidates(data: Dict[str, Any]) -> List[str]:
             continue
 
         if name in KNOWN_FOODS:
+            candidates.append(name)
+            continue
+
+        if " " not in name:
             candidates.append(name)
 
     seen = set()
