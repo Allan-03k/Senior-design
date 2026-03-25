@@ -14,9 +14,17 @@ import {
   Modal,
   Spinner,
 } from "react-bootstrap";
+import RestaurantMap from "./RestaurantMap.jsx";
 
 // Backend API base URL
 const API_BASE = "http://localhost:5001/api";
+
+function extractFirstHttpUrl(text) {
+  if (!text || typeof text !== "string") return null;
+  const m = text.match(/https:\/\/[^\s)\]'"<>]+/);
+  if (!m) return null;
+  return m[0].replace(/[.,;]+$/, "");
+}
 
 // Common ingredients for "Quick Add"
 const COMMON_INGREDIENTS = [
@@ -410,9 +418,20 @@ function App() {
   // Shopping list
   const [shoppingList, setShoppingList] = useState([]);
 
-  // Restaurants
+  // Restaurants (Dine Out)
+  const DEFAULT_DINE = { lat: 41.808, lng: -72.249 };
   const [restaurants, setRestaurants] = useState([]);
   const [resLoading, setResLoading] = useState(false);
+  const [dineLat, setDineLat] = useState(DEFAULT_DINE.lat);
+  const [dineLng, setDineLng] = useState(DEFAULT_DINE.lng);
+  const [dineRadiusM, setDineRadiusM] = useState(2000);
+  const [dineLocationLabel, setDineLocationLabel] = useState(
+    "Mansfield, CT (default)"
+  );
+  const [dineLocMessage, setDineLocMessage] = useState("");
+  const [dineAddressInput, setDineAddressInput] = useState("");
+  const [geocodeLoading, setGeocodeLoading] = useState(false);
+  const [resSearchMessage, setResSearchMessage] = useState("");
 
   // Vision scan modal
   const [showScanModal, setShowScanModal] = useState(false);
@@ -678,21 +697,123 @@ function App() {
     setShoppingList(listItems);
   };
 
+  const useMyLocationForDineOut = () => {
+    setDineLocMessage("");
+    if (!navigator.geolocation) {
+      setDineLocMessage("Geolocation is not supported in this browser.");
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setDineLat(pos.coords.latitude);
+        setDineLng(pos.coords.longitude);
+        setDineLocationLabel("Your location");
+      },
+      () => {
+        setDineLocMessage(
+          "Could not read your location. Check browser permissions."
+        );
+      },
+      { enableHighAccuracy: false, maximumAge: 60_000, timeout: 12_000 }
+    );
+  };
+
+  const resetDineLocation = () => {
+    setDineLat(DEFAULT_DINE.lat);
+    setDineLng(DEFAULT_DINE.lng);
+    setDineLocationLabel("Mansfield, CT (default)");
+    setDineAddressInput("");
+    setDineLocMessage("");
+  };
+
+  const applyDineAddress = async () => {
+    const q = dineAddressInput.trim();
+    if (!q) {
+      setDineLocMessage("Enter an address, neighborhood, or city.");
+      return;
+    }
+    setGeocodeLoading(true);
+    setDineLocMessage("");
+    try {
+      const res = await axios.get(`${API_BASE}/geocode`, {
+        params: { address: q },
+      });
+      setDineLat(res.data.lat);
+      setDineLng(res.data.lng);
+      setDineLocationLabel(res.data.formatted_address || q);
+    } catch (err) {
+      const msg =
+        err.response?.data?.error?.message ||
+        "Could not find that place. Try a fuller address.";
+      setDineLocMessage(msg);
+    } finally {
+      setGeocodeLoading(false);
+    }
+  };
+
   // Call /restaurants/search
   const searchRestaurants = async (cuisineType) => {
     setResLoading(true);
     setRestaurants([]);
+    setResSearchMessage("");
     try {
       const res = await axios.get(`${API_BASE}/restaurants/search`, {
-        params: { cuisine: cuisineType, lat: 41.808, lng: -72.249 },
+        params: {
+          cuisine: cuisineType,
+          lat: dineLat,
+          lng: dineLng,
+          radius: dineRadiusM,
+        },
       });
-      setRestaurants(res.data.results || []);
+      const list = res.data.results || [];
+      const st = res.data.places_status;
+      const errMsg = res.data.places_error_message || "";
+      setRestaurants(list);
+
+      if (st === "NO_API_KEY") {
+        setResSearchMessage(
+          "Server has no GOOGLE_API_KEY. Add it to backend/.env and restart the API."
+        );
+      } else if (st && !["OK", "ZERO_RESULTS"].includes(st)) {
+        setResSearchMessage(
+          errMsg ||
+            `Google returned “${st}”. In Google Cloud, enable Places API (New) — Text Search, and ensure billing is on.`
+        );
+      } else if (list.length === 0) {
+        setResSearchMessage(
+          "No restaurants in this radius. Try a larger radius, set a different address, or pick another cuisine."
+        );
+      }
     } catch (err) {
       console.error("Restaurant search error:", err);
       setRestaurants([]);
+      setResSearchMessage(
+        err.response?.data?.error?.message ||
+          "Could not reach the server. Check that the backend is running."
+      );
     }
     setResLoading(false);
   };
+
+  const pantryCuisineHints = (() => {
+    const p = new Set(pantry.map((x) => x.toLowerCase()));
+    const add = [];
+    const has = (terms) => terms.some((t) => p.has(t));
+    if (has(["soy sauce", "ginger", "rice", "bok choy"])) add.push("Chinese");
+    if (has(["pasta", "mozzarella", "basil", "tomato sauce"])) add.push("Italian");
+    if (has(["tortilla", "lime", "cilantro"])) add.push("Mexican");
+    if (has(["curry", "naan", "cumin"])) add.push("Indian");
+    if (has(["soy sauce", "noodles", "dashi", "miso"])) add.push("Japanese");
+    if (has(["fish sauce", "lemongrass", "coconut milk"])) add.push("Thai");
+    return [...new Set(add)];
+  })();
+
+  const googlePlacesConsoleUrl = extractFirstHttpUrl(resSearchMessage);
+  const showGooglePlacesSetupHint =
+    Boolean(resSearchMessage) &&
+    /Places API|not been used|it is disabled|PERMISSION_DENIED|enable it by visiting/i.test(
+      resSearchMessage
+    );
 
   return (
     <div className="bg-light min-vh-100 d-flex flex-column">
@@ -907,12 +1028,120 @@ function App() {
           </Row>
         ) : (
           <Container className="py-5">
-            <div className="text-center mb-5">
+            <div className="text-center mb-4">
               <h2 className="fw-bold">Find Nearby Restaurants</h2>
-              <p className="text-muted">
-                Based on location: Mansfield, CT (Simulated)
+              <p className="text-muted mb-2">
+                Searching near{" "}
+                <span className="text-dark fw-semibold">
+                  {dineLocationLabel}
+                </span>
+                {" · "}
+                within {(dineRadiusM / 1000).toFixed(1)} km
               </p>
-              <div className="d-flex justify-content-center gap-2 mt-3 flex-wrap">
+            </div>
+
+            <Row className="mb-4 g-3 align-items-stretch">
+              <Col lg={5}>
+                <Card className="border-0 shadow-sm h-100">
+                  <Card.Body>
+                    <h6 className="fw-bold mb-3">Location</h6>
+                    <Form
+                      className="mb-3"
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        applyDineAddress();
+                      }}
+                    >
+                      <Form.Label className="small text-muted">
+                        Address or place (Geocoding)
+                      </Form.Label>
+                      <div className="d-flex gap-2 flex-column flex-sm-row">
+                        <Form.Control
+                          type="text"
+                          placeholder="e.g. 123 Main St, Boston MA"
+                          value={dineAddressInput}
+                          onChange={(e) => setDineAddressInput(e.target.value)}
+                        />
+                        <Button
+                          type="submit"
+                          variant="danger"
+                          className="flex-shrink-0"
+                          disabled={geocodeLoading}
+                        >
+                          {geocodeLoading ? "…" : "Set"}
+                        </Button>
+                      </div>
+                    </Form>
+                    <div className="d-flex flex-wrap gap-2 mb-3">
+                      <Button
+                        variant="outline-primary"
+                        size="sm"
+                        className="rounded-pill"
+                        onClick={useMyLocationForDineOut}
+                      >
+                        📍 My location
+                      </Button>
+                      <Button
+                        variant="outline-secondary"
+                        size="sm"
+                        className="rounded-pill"
+                        onClick={resetDineLocation}
+                      >
+                        Default (Mansfield)
+                      </Button>
+                    </div>
+                    <Form.Label className="small text-muted">Radius</Form.Label>
+                    <Form.Select
+                      size="sm"
+                      className="mb-2"
+                      value={dineRadiusM}
+                      onChange={(e) =>
+                        setDineRadiusM(Number.parseInt(e.target.value, 10))
+                      }
+                      aria-label="Search radius"
+                    >
+                      <option value={1000}>1 km</option>
+                      <option value={2000}>2 km</option>
+                      <option value={5000}>5 km</option>
+                      <option value={10000}>10 km</option>
+                      <option value={20000}>20 km</option>
+                    </Form.Select>
+                    {dineLocMessage && (
+                      <p className="small text-warning mb-0">{dineLocMessage}</p>
+                    )}
+                  </Card.Body>
+                </Card>
+              </Col>
+              <Col lg={7}>
+                <RestaurantMap
+                  centerLat={dineLat}
+                  centerLng={dineLng}
+                  radiusM={dineRadiusM}
+                  restaurants={restaurants}
+                />
+                <p className="small text-muted mt-2 mb-0 text-center">
+                  Map tiles © OpenStreetMap · Red circle = search radius
+                </p>
+              </Col>
+            </Row>
+
+            <div className="text-center mb-4">
+              {pantryCuisineHints.length > 0 && (
+                <p className="small text-muted mb-3">
+                  From your pantry, try:{" "}
+                  {pantryCuisineHints.map((c) => (
+                    <Button
+                      key={c}
+                      variant="link"
+                      className="p-0 me-2 small"
+                      onClick={() => searchRestaurants(c)}
+                    >
+                      {c}
+                    </Button>
+                  ))}
+                </p>
+              )}
+              <div className="d-flex justify-content-center gap-2 mt-2 flex-wrap">
                 {[
                   "Italian",
                   "Chinese",
@@ -940,29 +1169,112 @@ function App() {
               </div>
             )}
 
+            {resSearchMessage && !resLoading && (
+              <div
+                className={`alert mx-auto mb-4 ${
+                  showGooglePlacesSetupHint
+                    ? "alert-warning text-start"
+                    : "alert-light border text-center text-muted"
+                } small`}
+                style={{ maxWidth: 720 }}
+              >
+                {showGooglePlacesSetupHint && (
+                  <div className="mb-3">
+                    <p className="fw-bold mb-1">
+                      需要在 Google Cloud 里启用接口（不是程序写错）
+                    </p>
+                    <p className="mb-0 text-dark">
+                      当前项目尚未启用{" "}
+                      <strong>Places API (New)</strong>。请点下面按钮打开控制台 →
+                      点击 <strong>启用 / Enable</strong> → 等待 1～3 分钟后再点一次菜系搜索。
+                    </p>
+                  </div>
+                )}
+                <p
+                  className={`mb-0 ${showGooglePlacesSetupHint ? "text-break text-secondary" : ""}`}
+                >
+                  {resSearchMessage}
+                </p>
+                {showGooglePlacesSetupHint && googlePlacesConsoleUrl && (
+                  <div className="mt-3">
+                    <Button
+                      variant="danger"
+                      size="sm"
+                      className="me-2"
+                      href={googlePlacesConsoleUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      打开 Google Cloud 启用页面
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
+
             <Row>
               {restaurants.map((res, idx) => (
-                <Col md={4} key={idx} className="mb-4">
+                <Col md={4} key={res.place_id || idx} className="mb-4">
                   <Card className="border-0 shadow h-100 hover-shadow">
-                    <Card.Body>
-                      <div className="d-flex justify-content-between align-items-start">
-                        <h5 className="fw-bold">{res.name}</h5>
-                        {res.rating && (
-                          <Badge bg="warning" text="dark">
-                            ⭐ {res.rating}
-                          </Badge>
-                        )}
+                    <Card.Body className="d-flex flex-column">
+                      <div className="d-flex justify-content-between align-items-start gap-2">
+                        <h5 className="fw-bold mb-0">{res.name}</h5>
+                        <div className="text-end flex-shrink-0">
+                          {res.rating != null && res.rating > 0 && (
+                            <Badge bg="warning" text="dark" className="me-1">
+                              ⭐ {res.rating}
+                            </Badge>
+                          )}
+                          {res.price_label ? (
+                            <Badge bg="secondary">{res.price_label}</Badge>
+                          ) : null}
+                        </div>
                       </div>
-                      <p className="small text-muted mt-2 mb-0">
+                      {res.user_ratings_total != null &&
+                        res.user_ratings_total > 0 && (
+                        <p className="small text-muted mb-1 mt-1">
+                          {res.user_ratings_total.toLocaleString()} reviews
+                        </p>
+                      )}
+                      <p className="small text-muted mb-2">
                         📍 {res.address || res.vicinity}
                       </p>
+                      <div className="d-flex flex-wrap gap-2 align-items-center mb-3">
+                        {typeof res.distance_km === "number" && (
+                          <Badge bg="light" text="dark" className="border">
+                            {res.distance_km < 1
+                              ? `${Math.round(res.distance_km * 1000)} m away`
+                              : `${res.distance_km} km away`}
+                          </Badge>
+                        )}
+                        {res.open_now === true && (
+                          <Badge bg="success">Open now</Badge>
+                        )}
+                        {res.open_now === false && (
+                          <Badge bg="secondary">Closed now</Badge>
+                        )}
+                      </div>
+                      {res.maps_url && (
+                        <div className="mt-auto">
+                          <Button
+                            variant="outline-danger"
+                            size="sm"
+                            className="rounded-pill"
+                            href={res.maps_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                          >
+                            Directions / Maps
+                          </Button>
+                        </div>
+                      )}
                     </Card.Body>
                   </Card>
                 </Col>
               ))}
-              {!resLoading && restaurants.length === 0 && (
+              {!resLoading && restaurants.length === 0 && !resSearchMessage && (
                 <div className="text-center text-muted w-100 py-5">
-                  Click a cuisine above to find restaurants.
+                  Choose a cuisine or a pantry suggestion to search.
                 </div>
               )}
             </Row>

@@ -10,7 +10,7 @@ from requests import HTTPError
 
 from models import db, Recipe, RecipeIngredient
 from services.recipes import recommend_recipes, get_shopping_missing
-from services.places import search_restaurants
+from services.places import search_restaurants, geocode_address
 from services.webrecipes import discover_recipes_from_web
 from services.vision import debug_detect_all
 from flask import request, jsonify
@@ -199,7 +199,8 @@ def search_web():
 @app.get("/api/restaurants/search")
 def restaurants():
     """
-    Search nearby restaurants using Google Places API (simple wrapper).
+    Search nearby restaurants using Google Places API.
+    Query: cuisine, lat, lng, radius (meters, 500–50000, default 2000).
     """
     cuisine = request.args.get("cuisine", "Italian")
     try:
@@ -208,8 +209,38 @@ def restaurants():
     except ValueError:
         return err(message="invalid lat/lng")
 
-    results = search_restaurants(cuisine, lat, lng)
-    return ok({"cuisine": cuisine, "results": results})
+    try:
+        radius = int(request.args.get("radius", "2000"))
+    except ValueError:
+        radius = 2000
+
+    payload = search_restaurants(cuisine, lat, lng, radius=radius)
+    return ok(
+        {
+            "cuisine": cuisine,
+            "location": {"lat": lat, "lng": lng, "radius_m": radius},
+            "results": payload.get("results", []),
+            "places_status": payload.get("status"),
+            "places_error_message": payload.get("error_message") or "",
+        }
+    )
+
+
+@app.get("/api/geocode")
+def geocode():
+    """Resolve a street address or place name to coordinates (Geocoding API)."""
+    address = (request.args.get("address") or "").strip()
+    if not address:
+        return err(message="address query parameter required")
+
+    out = geocode_address(address)
+    if not out:
+        return err(
+            "NOT_FOUND",
+            "Could not resolve that address. Try a fuller query (e.g. Mansfield, CT, USA) or check your network.",
+            404,
+        )
+    return ok(out)
 
 
 @app.get("/openapi.json")
