@@ -26,60 +26,109 @@ function extractFirstHttpUrl(text) {
   return m[0].replace(/[.,;]+$/, "");
 }
 
-// Common ingredients for "Quick Add"
-const COMMON_INGREDIENTS = [
-  "Egg",
-  "Chicken",
-  "Beef",
-  "Pork",
-  "Fish",
-  "Shrimp",
-  "Tofu",
-  "Bacon",
-  "Rice",
-  "Pasta",
-  "Noodles",
-  "Bread",
-  "Tortilla",
-  "Potato",
-  "Sweet Potato",
-  "Milk",
-  "Yogurt",
-  "Cheese",
-  "Butter",
-  "Cream",
-  "Tomato",
-  "Onion",
-  "Garlic",
-  "Carrot",
-  "Broccoli",
-  "Spinach",
-  "Lettuce",
-  "Cabbage",
-  "Cucumber",
-  "Bell Pepper",
-  "Mushroom",
-  "Corn",
-  "Green Onion",
-  "Salt",
-  "Pepper",
-  "Sugar",
-  "Soy Sauce",
-  "Vinegar",
-  "Oil",
-  "Olive Oil",
-  "Sesame Oil",
-  "Tomato Sauce",
-  "Ketchup",
-  "Mayonnaise",
-  "Ginger",
-  "Chili",
-  "Lemon",
-  "Lime",
-  "Orange",
-  "Cabbage",
-  "Pineapple"
-];
+// Common ingredients for "Quick Add" - organized by category
+const COMMON_INGREDIENTS = {
+  "🥩 Proteins": [
+    "Egg",
+    "Chicken",
+    "Beef",
+    "Pork",
+    "Fish",
+    "Shrimp",
+    "Tofu",
+    "Bacon",
+    "Lamb",
+    "Turkey",
+    "Duck",
+    "Salmon"
+  ],
+  "🥗 Vegetables": [
+    "Tomato",
+    "Onion",
+    "Garlic",
+    "Carrot",
+    "Broccoli",
+    "Spinach",
+    "Lettuce",
+    "Cabbage",
+    "Cucumber",
+    "Bell Pepper",
+    "Mushroom",
+    "Corn",
+    "Green Onion",
+    "Zucchini",
+    "Asparagus",
+    "Green Beans",
+    "Peas",
+    "Eggplant"
+  ],
+  "🍎 Fruits": [
+    "Lemon",
+    "Lime",
+    "Orange",
+    "Pineapple",
+    "Apple",
+    "Banana",
+    "Strawberry",
+    "Blueberry",
+    "Avocado",
+    "Mango",
+    "Papaya"
+  ],
+  "🌾 Grains & Pasta": [
+    "Rice",
+    "Pasta",
+    "Noodles",
+    "Bread",
+    "Tortilla",
+    "Oats",
+    "Couscous",
+    "Quinoa"
+  ],
+  "🥔 Root Vegetables": [
+    "Potato",
+    "Sweet Potato",
+    "Yam",
+    "Beet"
+  ],
+  "🥛 Dairy & Eggs": [
+    "Milk",
+    "Yogurt",
+    "Cheese",
+    "Butter",
+    "Cream",
+    "Sour Cream"
+  ],
+  "🧂 Seasonings & Spices": [
+    "Salt",
+    "Pepper",
+    "Sugar",
+    "Ginger",
+    "Chili",
+    "Soy Sauce",
+    "Vinegar",
+    "Ketchup",
+    "Mayonnaise",
+    "Tomato Sauce",
+    "Hot Sauce",
+    "Paprika",
+    "Cumin",
+    "Oregano",
+    "Thyme",
+    "Basil",
+    "Cinnamon",
+    "Honey"
+  ],
+  "🫒 Oils & Fats": [
+    "Oil",
+    "Olive Oil",
+    "Sesame Oil",
+    "Coconut Oil",
+    "Vegetable Oil",
+    "Butter",
+    "Lard"
+  ]
+};
 
 // Simple dictionary used to guess ingredients from a text snippet
 const KNOWN_INGREDIENTS = [
@@ -313,9 +362,17 @@ function RecipeModal({
           Generate Shopping List
         </Button>
         <Button
-          variant="dark"
+          variant="outline-info"
           onClick={handleStartCookingClick}
           disabled={!(recipe.sourceUrl || recipe.url)}
+        >
+          View Recipe
+        </Button>
+        <Button
+          variant="dark"
+          onClick={() => {
+            // TODO: Connect to cooking API
+          }}
         >
           Start Cooking
         </Button>
@@ -414,6 +471,8 @@ function App() {
   const [recipes, setRecipes] = useState([]);
   const [loading, setLoading] = useState(false);
   const [selectedRecipe, setSelectedRecipe] = useState(null);
+  const [hasStartedSearch, setHasStartedSearch] = useState(false);
+  const matrixSize = 4; // 固定 4 列 × 3 行
 
   // Shopping list
   const [shoppingList, setShoppingList] = useState([]);
@@ -443,19 +502,19 @@ function App() {
   const activeRecommendControllerRef = useRef(null);
   const latestRecommendTokenRef = useRef(0);
 
-  // Whenever pantry changes, refresh recommendations
+  // Whenever pantry changes, refresh recommendations (after initial search)
   useEffect(() => {
     const timer = setTimeout(() => {
-      if (pantry.length > 0) {
+      if (hasStartedSearch && pantry.length > 0) {
         handleRecommend(pantry);
-      } else {
+      } else if (!hasStartedSearch) {
         setRecipes([]);
       }
     }, 700);
 
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pantry]);
+  }, [pantry, hasStartedSearch]);
 
   useEffect(() => {
     return () => {
@@ -476,7 +535,13 @@ function App() {
 
   // Remove ingredient
   const removeIngredient = (ingToRemove) => {
-    setPantry(pantry.filter((i) => i !== ingToRemove));
+    const updated = pantry.filter((i) => i !== ingToRemove);
+    setPantry(updated);
+    // Reset search state if all ingredients are removed
+    if (updated.length === 0) {
+      setHasStartedSearch(false);
+      setRecipes([]);
+    }
   };
 
   // Handle Enter in input
@@ -555,6 +620,14 @@ function App() {
     }
   };
 
+  // Handle initial search start
+  const handleStartSearch = () => {
+    if (pantry.length > 0) {
+      setHasStartedSearch(true);
+      handleRecommend(pantry);
+    }
+  };
+
   // Call /recipes/recommend + /recipes/search-web
   const handleRecommend = async (currentPantry) => {
     const requestToken = Date.now();
@@ -584,8 +657,10 @@ function App() {
       setRecipes(results.slice(0, 50));
 
       // Web parsing is expensive: skip when pantry is too small.
-      if (results.length < 50 && normalizedPantry.length >= 2) {
-        if (webRecipeCacheRef.current.has(pantryKey)) {
+      if (results.length < 50 && normalizedPantry.length >= 1) {
+        const maxItems = 50;
+
+      if (webRecipeCacheRef.current.has(pantryKey)) {
           const cachedWeb = webRecipeCacheRef.current.get(pantryKey) || [];
           const combinedCached = [...results, ...cachedWeb];
           const uniqueCached = new Map();
@@ -593,7 +668,7 @@ function App() {
             const key = `${item.name}-${item.sourceUrl || item.url || item.id}`;
             if (!uniqueCached.has(key)) uniqueCached.set(key, item);
           });
-          results = Array.from(uniqueCached.values()).slice(0, 50);
+          results = Array.from(uniqueCached.values()).slice(0, maxItems);
           if (latestRecommendTokenRef.current === requestToken) {
             setRecipes(results);
           }
@@ -652,7 +727,8 @@ function App() {
         }
       }
 
-      results = results.slice(0, 50);
+      const maxItems = 50;
+      results = results.slice(0, maxItems);
       if (latestRecommendTokenRef.current === requestToken) {
         setRecipes(results);
       }
@@ -915,19 +991,27 @@ function App() {
               <h6 className="text-muted text-uppercase small fw-bold mb-3">
                 Quick Add
               </h6>
-              <div className="d-flex flex-wrap gap-2">
-                {COMMON_INGREDIENTS.map((item) => (
-                  <Button
-                    key={item}
-                    variant="outline-secondary"
-                    size="sm"
-                    className="rounded-pill"
-                    onClick={() => addIngredient(item)}
-                  >
-                    + {item}
-                  </Button>
+              <div className="quick-add-container">
+                {Object.entries(COMMON_INGREDIENTS).map(([category, items]) => (
+                  <div key={category} className="mb-3">
+                    <h6 className="small text-muted fw-bold mb-2">{category}</h6>
+                    <div className="d-flex flex-wrap gap-2">
+                      {items.map((item) => (
+                        <Button
+                          key={item}
+                          variant="outline-secondary"
+                          size="sm"
+                          className="rounded-pill"
+                          onClick={() => addIngredient(item)}
+                        >
+                          + {item}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
                 ))}
               </div>
+
             </Col>
 
             {/* Right: Recommended Recipes */}
@@ -943,8 +1027,41 @@ function App() {
                 )}
               </div>
 
-              <Row>
-                {recipes.map((recipe) => {
+              {!hasStartedSearch && pantry.length > 0 && (
+                <div 
+                  className="text-center mb-5" 
+                  style={{ 
+                    minHeight: '800px',
+                    display: 'flex', 
+                    flexDirection: 'column',
+                    alignItems: 'center', 
+                    justifyContent: 'center' 
+                  }}
+                >
+                  <h4 style={{ fontSize: "1.5rem", color: "#999", marginBottom: '1rem' }}>📝</h4>
+                  <p className="text-muted" style={{ fontSize: '1.1rem', marginBottom: '1.5rem' }}>
+                    Add ingredients to your pantry to see recipes!
+                  </p>
+                  <Button
+                    variant="success"
+                    size="lg"
+                    style={{ minWidth: '220px' }}
+                    onClick={handleStartSearch}
+                  >
+                    🔍 Search Recipes
+                  </Button>
+                </div>
+              )}
+
+              <div
+                className="recipe-grid"
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+                  gap: "1rem",
+                }}
+              >
+                {recipes.slice(0, 50).map((recipe) => {
                   const cardImage = recipe.image
                     ? recipe.image
                     : `https://placehold.co/600x400/EEE/31343C?text=${encodeURIComponent(
@@ -952,15 +1069,6 @@ function App() {
                       )}&font=roboto`;
 
                   return (
-                    <Col
-                      xl={2}
-                      lg={3}
-                      md={4}
-                      sm={6}
-                      xs={12}
-                      className="mb-4"
-                      key={recipe.id}
-                    >
                       <Card
                         className="border-0 shadow-sm h-100 recipe-card"
                         style={{
@@ -974,7 +1082,7 @@ function App() {
                       >
                         <div
                           style={{
-                            height: "180px",
+                            height: "240px",
                             overflow: "hidden",
                             position: "relative",
                           }}
@@ -985,7 +1093,7 @@ function App() {
                             style={{
                               cursor: "pointer",
                               objectFit: "cover",
-                              height: "180px",
+                              height: "240px",
                               width: "100%",
                             }}
                           />
@@ -1003,27 +1111,17 @@ function App() {
                         </div>
 
                         <Card.Body>
-                          <Card.Title className="h6 fw-bold text-truncate">
+                          <Card.Title className="h5 fw-bold text-truncate">
                             {recipe.name}
                           </Card.Title>
-                          <Card.Text className="small text-muted">
+                          <Card.Text className="text-muted" style={{ fontSize: '0.95rem' }}>
                             {recipe.cuisine || "Recipe"}
                           </Card.Text>
                         </Card.Body>
                       </Card>
-                    </Col>
                   );
                 })}
-
-                {recipes.length === 0 && !loading && (
-                  <div className="text-center mt-5 text-muted w-100">
-                    <h3 style={{ fontSize: "3rem" }}>🥣</h3>
-                    <p className="lead">
-                      Add ingredients to your pantry to see recipes!
-                    </p>
-                  </div>
-                )}
-              </Row>
+              </div>
             </Col>
           </Row>
         ) : (
