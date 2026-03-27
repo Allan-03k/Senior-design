@@ -1036,7 +1036,7 @@ function App() {
                 <div 
                   className="text-center mb-5" 
                   style={{ 
-                    minHeight: '800px',
+                    minHeight: '300px',
                     display: 'flex', 
                     flexDirection: 'column',
                     alignItems: 'center', 
