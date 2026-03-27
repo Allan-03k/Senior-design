@@ -930,86 +930,91 @@ function App() {
             {/* Left: Pantry */}
             <Col
               md={3}
-              className="bg-white border-end h-100 p-4"
-              style={{ minHeight: "90vh" }}
+              className="bg-white border-end d-flex flex-column"
+              style={{ minHeight: "90vh", maxHeight: "90vh" }}
             >
-              <h5 className="mb-3 d-flex justify-content-between align-items-center">
-                <span>My Pantry ({pantry.length})</span>
-                {pantry.length > 0 && (
-                  <Button
-                    variant="link"
-                    className="text-danger text-decoration-none p-0 small fw-bold"
-                    style={{ fontSize: "0.85rem" }}
-                    onClick={() => setPantry([])}
-                  >
-                    Clear All
-                  </Button>
-                )}
-              </h5>
+              <div className="p-4 border-bottom">
+                <h5 className="mb-3 d-flex justify-content-between align-items-center">
+                  <span>My Pantry ({pantry.length})</span>
+                  {pantry.length > 0 && (
+                    <Button
+                      variant="link"
+                      className="text-danger text-decoration-none p-0 small fw-bold"
+                      style={{ fontSize: "0.85rem" }}
+                      onClick={() => setPantry([])}
+                    >
+                      Clear All
+                    </Button>
+                  )}
+                </h5>
 
-              {/* Scan Fridge Button */}
-              <Button
-                variant="outline-danger"
-                className="w-100 mb-3 shadow-sm d-flex align-items-center justify-content-center gap-2"
-                style={{ borderStyle: "dashed", borderWidth: "2px" }}
-                onClick={handleOpenScanModal}
-              >
-                📷 Scan Fridge
-              </Button>
+                {/* Scan Fridge Button */}
+                <Button
+                  variant="outline-danger"
+                  className="w-100 mb-3 shadow-sm d-flex align-items-center justify-content-center gap-2"
+                  style={{ borderStyle: "dashed", borderWidth: "2px" }}
+                  onClick={handleOpenScanModal}
+                >
+                  📷 Scan Fridge
+                </Button>
 
-              <Form.Group className="mb-3 position-relative">
-                <Form.Control
-                  placeholder="Type ingredient + Enter..."
-                  value={inputValue}
-                  onChange={(e) => setInputValue(e.target.value)}
-                  onKeyDown={handleKeyDown}
-                  className="rounded-pill bg-light border-0 px-3 py-2"
-                />
-              </Form.Group>
+                <Form.Group className="mb-3 position-relative">
+                  <Form.Control
+                    placeholder="Type ingredient + Enter..."
+                    value={inputValue}
+                    onChange={(e) => setInputValue(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    className="rounded-pill bg-light border-0 px-3 py-2"
+                  />
+                </Form.Group>
 
-              <div className="d-flex flex-wrap gap-2 mb-4">
-                {pantry.map((item) => (
-                  <Badge
-                    key={item}
-                    bg="danger"
-                    className="p-2 rounded-pill"
-                    style={{ cursor: "pointer" }}
-                    onClick={() => removeIngredient(item)}
-                  >
-                    {item}
-                    <span className="ms-1 opacity-50">×</span>
-                  </Badge>
-                ))}
-                {pantry.length === 0 && (
-                  <div className="text-center w-100 text-muted small mt-2">
-                    <p>Your pantry is empty.</p>
-                    <p>👇 Use "Scan Fridge" or Quick Add below</p>
-                  </div>
-                )}
+                <div className="d-flex flex-wrap gap-2 mb-4">
+                  {pantry.map((item) => (
+                    <Badge
+                      key={item}
+                      bg="danger"
+                      className="p-2 rounded-pill"
+                      style={{ cursor: "pointer" }}
+                      onClick={() => removeIngredient(item)}
+                    >
+                      {item}
+                      <span className="ms-1 opacity-50">×</span>
+                    </Badge>
+                  ))}
+                  {pantry.length === 0 && (
+                    <div className="text-center w-100 text-muted small mt-2">
+                      <p>Your pantry is empty.</p>
+                      <p>👇 Use "Scan Fridge" or Quick Add below</p>
+                    </div>
+                  )}
+                </div>
               </div>
 
-              <h6 className="text-muted text-uppercase small fw-bold mb-3">
-                Quick Add
-              </h6>
-              <div className="quick-add-container">
-                {Object.entries(COMMON_INGREDIENTS).map(([category, items]) => (
-                  <div key={category} className="mb-3">
-                    <h6 className="small text-muted fw-bold mb-2">{category}</h6>
-                    <div className="d-flex flex-wrap gap-2">
-                      {items.map((item) => (
-                        <Button
-                          key={item}
-                          variant="outline-secondary"
-                          size="sm"
-                          className="rounded-pill"
-                          onClick={() => addIngredient(item)}
-                        >
-                          + {item}
-                        </Button>
-                      ))}
+              {/* Scrollable Quick Add section */}
+              <div className="flex-grow-1 overflow-auto p-4">
+                <h6 className="text-muted text-uppercase small fw-bold mb-3">
+                  Quick Add
+                </h6>
+                <div className="quick-add-container">
+                  {Object.entries(COMMON_INGREDIENTS).map(([category, items]) => (
+                    <div key={category} className="mb-3">
+                      <h6 className="small text-muted fw-bold mb-2">{category}</h6>
+                      <div className="d-flex flex-wrap gap-2">
+                        {items.map((item) => (
+                          <Button
+                            key={item}
+                            variant="outline-secondary"
+                            size="sm"
+                            className="rounded-pill"
+                            onClick={() => addIngredient(item)}
+                          >
+                            + {item}
+                          </Button>
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
 
             </Col>
