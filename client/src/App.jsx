@@ -17,7 +17,7 @@ import {
 import RestaurantMap from "./RestaurantMap.jsx";
 
 // Backend API base URL
-const API_BASE = "http://localhost:5001/api";
+const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:5001/api";
 
 function extractFirstHttpUrl(text) {
   if (!text || typeof text !== "string") return null;
@@ -469,6 +469,7 @@ function App() {
 
   // Recipes
   const [recipes, setRecipes] = useState([]);
+  const [favorites, setFavorites] = useState([]);
   const [loading, setLoading] = useState(false);
   const [selectedRecipe, setSelectedRecipe] = useState(null);
   const [hasStartedSearch, setHasStartedSearch] = useState(false);
@@ -523,6 +524,10 @@ function App() {
       }
     };
   }, []);
+  
+  useEffect(() => {
+  loadFavorites();
+}, []);
 
   // Add ingredient to pantry
   const addIngredient = (ing) => {
@@ -772,6 +777,40 @@ function App() {
 
     setShoppingList(listItems);
   };
+  
+  const saveFavorite = async (recipe) => {
+  try {
+    await axios.post(`${API_BASE}/favorites`, {
+      name: recipe.name,
+      cuisine: recipe.cuisine,
+      source_url: recipe.sourceUrl || recipe.url || null,
+    });
+    alert("Favorite saved!");
+    loadFavorites();
+  } catch (error) {
+    console.error("Error saving favorite:", error);
+    alert("Failed to save favorite.");
+  }
+};
+
+  const loadFavorites = async () => {
+  try {
+    const res = await axios.get(`${API_BASE}/favorites`);
+    setFavorites(res.data || []);
+  } catch (error) {
+    console.error("Error loading favorites:", error);
+  }
+};
+
+  const deleteFavorite = async (favoriteId) => {
+  try {
+    await axios.delete(`${API_BASE}/favorites/${favoriteId}`);
+    loadFavorites();
+  } catch (error) {
+    console.error("Error deleting favorite:", error);
+    alert("Failed to delete favorite.");
+  }
+};
 
   const useMyLocationForDineOut = () => {
     setDineLocMessage("");
@@ -1031,6 +1070,65 @@ function App() {
                   </div>
                 )}
               </div>
+              
+              {favorites.length > 0 && (
+                <div className="mb-4">
+                <h6 className="fw-bold">Saved Favorites ({favorites.length})</h6>
+                <div className="d-flex flex-wrap gap-2">
+                  {favorites.map((fav) => (
+                    <div
+                      key={fav.id}
+                      className="badge bg-warning text-dark p-2 rounded-pill d-flex align-items-center"
+                      style={{ gap: "0.5rem", fontSize: "0.95rem" }}
+                    >
+                      <span
+                        style={{ cursor: "pointer" }}
+                        onClick={async () => {
+                          const matchedRecipe = recipes.find((r) => r.name === fav.name);
+                          if (matchedRecipe) {
+                            setSelectedRecipe(matchedRecipe);
+                            setShoppingList([]);
+                          } else {
+                            try {
+                              const res = await axios.post(`${API_BASE}/recipes/search-web`, {
+                                ingredients: [fav.name],
+                              });
+
+                              const item = res.data.items?.[0];
+
+                              if (item) {
+                                setSelectedRecipe({
+                                  name: item.name,
+                                  cuisine: "Web Discovery",
+                                  steps: item.instructions?.[0] || "Open source link",
+                                  sourceUrl: item.url,
+                              });
+                              setShoppingList([]);
+                            } else {
+                              alert("Recipe not found.");
+                            }
+                          } catch (err) {
+                            console.error(err);
+                            alert("Failed to load recipe.");
+                          }
+                        }
+                      }}
+                    >
+                      {fav.name}
+                    </span>
+
+                    {/* Click × → delete */}
+                    <span
+                      style={{ cursor: "pointer", fontWeight: "bold" }}
+                      onClick={() => deleteFavorite(fav.id)}
+                    >
+                      ×
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
               {!hasStartedSearch && pantry.length > 0 && (
                 <div 
@@ -1122,6 +1220,18 @@ function App() {
                           <Card.Text className="text-muted" style={{ fontSize: '0.95rem' }}>
                             {recipe.cuisine || "Recipe"}
                           </Card.Text>
+                          
+                          <Button
+                            variant="warning"
+                            className="mt-2"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              saveFavorite(recipe);
+                            }}
+                          >
+                            Save to Favorites
+                          </Button>
+                          
                         </Card.Body>
                       </Card>
                   );
