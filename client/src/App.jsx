@@ -268,16 +268,29 @@ function RecipeModal({
   handleClose,
   recipe,
   onShoppingList,
+  onStartCooking,
   shoppingList,
 }) {
   if (!recipe) return null;
 
-  const handleStartCookingClick = () => {
+  const handleOpenRecipeLink = () => {
     const url = recipe.sourceUrl || recipe.url;
     if (url) {
       window.open(url, "_blank", "noopener,noreferrer");
     } else {
       alert("This recipe does not have an external link.");
+    }
+  };
+
+  const buildShoppingUrl = (items) => {
+    if (!items || items.length === 0) return "";
+    const query = items.map((item) => item.ingredient).join(" ");
+    return `https://www.walmart.com/search/?query=${encodeURIComponent(query)}`;
+  };
+
+  const handleStartCookingClick = () => {
+    if (onStartCooking) {
+      onStartCooking(recipe);
     }
   };
 
@@ -329,24 +342,41 @@ function RecipeModal({
         </Row>
 
         {shoppingList && shoppingList.length > 0 && (
-          <Row className="mt-4">
-            <Col>
-              <h5 className="border-bottom pb-2">
-                🧾 Missing ingredients
-                {shoppingList?.length ? ` (${shoppingList.length})` : ""} (Smart Shopping List)
-              </h5>
-              <ul className="list-group list-group-flush">
-                {shoppingList.map((item, idx) => (
-                  <li
-                    key={idx}
-                    className="list-group-item bg-transparent px-0 text-danger fw-bold"
-                  >
-                    • {item.ingredient}
-                  </li>
-                ))}
-              </ul>
-            </Col>
-          </Row>
+          <>
+            <Row className="mt-4">
+              <Col>
+                <h5 className="border-bottom pb-2">
+                  🧾 Missing ingredients
+                  {shoppingList?.length ? ` (${shoppingList.length})` : ""} (Smart Shopping List)
+                </h5>
+                <ul className="list-group list-group-flush">
+                  {shoppingList.map((item, idx) => (
+                    <li
+                      key={idx}
+                      className="list-group-item bg-transparent px-0 text-danger fw-bold"
+                    >
+                      • {item.ingredient}
+                    </li>
+                  ))}
+                </ul>
+              </Col>
+            </Row>
+            <Row className="mt-3">
+              <Col className="text-end">
+                <Button
+                  variant="success"
+                  onClick={() => {
+                    const url = buildShoppingUrl(shoppingList);
+                    if (url) {
+                      window.open(url, "_blank", "noopener,noreferrer");
+                    }
+                  }}
+                >
+                  Shop Missing Items on Amazon
+                </Button>
+              </Col>
+            </Row>
+          </>
         )}
       </Modal.Body>
 
@@ -363,18 +393,96 @@ function RecipeModal({
         </Button>
         <Button
           variant="outline-info"
-          onClick={handleStartCookingClick}
+          onClick={handleOpenRecipeLink}
           disabled={!(recipe.sourceUrl || recipe.url)}
         >
           View Recipe
         </Button>
         <Button
           variant="dark"
-          onClick={() => {
-            // TODO: Connect to cooking API
-          }}
+          onClick={handleStartCookingClick}
+          disabled={!recipe.steps}
         >
           Start Cooking
+        </Button>
+      </Modal.Footer>
+    </Modal>
+  );
+}
+
+function CookingVideoModal({
+  show,
+  recipe,
+  videoSrc,
+  generating,
+  error,
+  onClose,
+}) {
+  if (!recipe) return null;
+
+  const steps = String(recipe.steps || "")
+    .split(/\r?\n|;/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .slice(0, 5);
+
+  return (
+    <Modal show={show} onHide={onClose} size="xl" centered>
+      <Modal.Header closeButton>
+        <Modal.Title>Little Helping Video: {recipe.name}</Modal.Title>
+      </Modal.Header>
+      <Modal.Body>
+        {generating ? (
+          <div className="text-center py-5">
+            <Spinner animation="border" />
+            <div className="mt-3">Generating video, please wait...</div>
+          </div>
+        ) : error ? (
+          <div className="text-danger">{error}</div>
+        ) : videoSrc ? (
+          <>
+            <video
+              controls
+              autoPlay
+              style={{ width: "100%", borderRadius: 16, background: "#000" }}
+              src={videoSrc}
+            />
+            <div className="mt-4">
+              <h5>Video Notes</h5>
+              <p>
+                This simple animated video highlights key ingredients and steps to help you cook quickly.
+              </p>
+              <div className="row">
+                <div className="col-md-6">
+                  <h6>Main Ingredients</h6>
+                  <ul className="list-group list-group-flush">
+                    {(recipe.required_ingredients || []).slice(0, 6).map((ing, idx) => (
+                      <li key={idx} className="list-group-item bg-transparent px-0">
+                        {ing}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+                <div className="col-md-6">
+                  <h6>Step Preview</h6>
+                  <ol>
+                    {steps.map((line, index) => (
+                      <li key={index}>{line}</li>
+                    ))}
+                  </ol>
+                </div>
+              </div>
+            </div>
+          </>
+        ) : (
+          <div className="text-muted">
+            Video generation failed. Please try again later or check browser compatibility.
+          </div>
+        )}
+      </Modal.Body>
+      <Modal.Footer>
+        <Button variant="secondary" onClick={onClose}>
+          Close
         </Button>
       </Modal.Footer>
     </Modal>
@@ -472,7 +580,7 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [selectedRecipe, setSelectedRecipe] = useState(null);
   const [hasStartedSearch, setHasStartedSearch] = useState(false);
-  const matrixSize = 4; // 固定 4 列 × 3 行
+  const matrixSize = 4; // fixed 4 columns × 3 rows
 
   // Shopping list
   const [shoppingList, setShoppingList] = useState([]);
@@ -498,6 +606,11 @@ function App() {
   const [scanError, setScanError] = useState("");
   const [scanFile, setScanFile] = useState(null);
   const [scanPreview, setScanPreview] = useState("");
+  const [showCookingVideoModal, setShowCookingVideoModal] = useState(false);
+  const [cookingVideoRecipe, setCookingVideoRecipe] = useState(null);
+  const [cookingVideoSrc, setCookingVideoSrc] = useState("");
+  const [cookingVideoGenerating, setCookingVideoGenerating] = useState(false);
+  const [cookingVideoError, setCookingVideoError] = useState("");
   const webRecipeCacheRef = useRef(new Map());
   const activeRecommendControllerRef = useRef(null);
   const latestRecommendTokenRef = useRef(0);
@@ -771,6 +884,236 @@ function App() {
     });
 
     setShoppingList(listItems);
+  };
+
+  const cleanupCookingVideo = () => {
+    if (cookingVideoSrc) {
+      URL.revokeObjectURL(cookingVideoSrc);
+      setCookingVideoSrc("");
+    }
+  };
+
+  const speakRecipeAudio = () => {};
+
+  const createCookingVideoBlob = async (recipe) => {
+    if (!window.MediaRecorder || !HTMLCanvasElement.prototype.captureStream) {
+      throw new Error("This browser does not support video generation.");
+    }
+
+    const width = 960;
+    const height = 540;
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      throw new Error("Unable to create canvas drawing context.");
+    }
+
+    const sections = [
+      {
+        title: recipe.name,
+        subtitle: "AI Animated Cooking Guide",
+        lines: ["The assistant is creating a simple animated recipe video."],
+      },
+      {
+        title: "Main Ingredients",
+        subtitle: "Prepare the following items:",
+        lines: (recipe.required_ingredients || [])
+          .slice(0, 6)
+          .map((ing, idx) => `${idx + 1}. ${ing}`),
+      },
+      {
+        title: "Cooking Steps",
+        subtitle: "Follow the animated prompts:",
+        lines: String(recipe.steps || "")
+          .split(/\r?\n|;/)
+          .map((line) => line.trim())
+          .filter(Boolean)
+          .slice(0, 5)
+          .map((line, idx) => `${idx + 1}. ${line}`),
+      },
+      {
+        title: "Start Cooking",
+        subtitle: "Enjoy your meal!",
+        lines: ["Follow the animated prompts to complete your dish."],
+      },
+    ];
+
+    const wrapText = (text, x, y, maxWidth, lineHeight) => {
+      const words = text.split(" ");
+      let line = "";
+      for (let n = 0; n < words.length; n += 1) {
+        const testLine = line ? `${line} ${words[n]}` : words[n];
+        const metrics = ctx.measureText(testLine);
+        if (metrics.width > maxWidth && n > 0) {
+          ctx.fillText(line, x, y);
+          line = words[n];
+          y += lineHeight;
+        } else {
+          line = testLine;
+        }
+      }
+      ctx.fillText(line, x, y);
+      return y + lineHeight;
+    };
+
+    const drawFrame = (sectionIndex, progress) => {
+      const section = sections[sectionIndex];
+      ctx.fillStyle = "#111827";
+      ctx.fillRect(0, 0, width, height);
+
+      // Background gradient for animation
+      const gradient = ctx.createRadialGradient(
+        width * 0.75,
+        height * 0.25,
+        20,
+        width * 0.75,
+        height * 0.25,
+        260
+      );
+      gradient.addColorStop(0, "rgba(237, 250, 255, 0.35)");
+      gradient.addColorStop(1, "rgba(15, 23, 42, 0)");
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, width, height);
+
+      ctx.fillStyle = "rgba(255,255,255,0.08)";
+      for (let i = 0; i < 12; i += 1) {
+        const radius = 40 + ((i + progress * 2) % 6) * 8;
+        ctx.beginPath();
+        ctx.arc(width * 0.2 + (i % 4) * 140, height * 0.3 + Math.sin(progress * Math.PI * 2 + i) * 18, radius, 0, Math.PI * 2);
+        ctx.strokeStyle = "rgba(148,163,184,0.18)";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
+
+      ctx.fillStyle = "#f8fafc";
+      ctx.fillRect(48, 48, width - 96, height - 96);
+      ctx.fillStyle = "#0f172a";
+      ctx.fillRect(64, 64, width - 128, height - 128);
+      ctx.fillStyle = "#f8fafc";
+      ctx.font = "bold 46px Arial";
+      ctx.fillText(section.title, 96, 136);
+
+      ctx.font = "24px Arial";
+      ctx.fillStyle = "#cbd5e1";
+      ctx.fillText(section.subtitle, 96, 180);
+
+      const accentX = 96 + progress * 20;
+      ctx.fillStyle = "#22c55e";
+      ctx.fillRect(accentX, 210, 160, 10);
+
+      ctx.font = "20px Arial";
+      ctx.fillStyle = "#f8fafc";
+      let nextY = 250;
+      const visibleCount = Math.max(1, Math.round(section.lines.length * Math.min(1, progress * 1.25)));
+      section.lines.slice(0, visibleCount).forEach((line, idx) => {
+        const x = 96 + (idx % 2) * 380;
+        const y = nextY + Math.floor(idx / 2) * 54;
+        if (idx > 1) {
+          ctx.fillStyle = "rgba(248,250,252,0.75)";
+        } else {
+          ctx.fillStyle = "#f8fafc";
+        }
+        wrapText(line, x, y, 330, 28);
+      });
+
+      const dotCount = 6;
+      for (let i = 0; i < dotCount; i += 1) {
+        const dotProgress = (progress + i / dotCount) % 1;
+        const dotX = 96 + dotProgress * (width - 220);
+        const dotY = height - 96;
+        ctx.beginPath();
+        ctx.arc(dotX, dotY, 10, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(34,197,94,${0.35 + 0.65 * Math.sin(dotProgress * Math.PI)})`;
+        ctx.fill();
+      }
+    };
+
+    const sectionDurationMs = 3000;
+    const totalDurationMs = sections.length * sectionDurationMs;
+
+    const captureStream = canvas.captureStream(30);
+    const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp9")
+      ? "video/webm;codecs=vp9"
+      : "video/webm";
+    const recorder = new MediaRecorder(captureStream, { mimeType });
+    const chunks = [];
+    recorder.ondataavailable = (event) => {
+      if (event.data && event.data.size > 0) {
+        chunks.push(event.data);
+      }
+    };
+
+    const stopped = new Promise((resolve) => {
+      recorder.onstop = resolve;
+    });
+
+    recorder.start(100);
+
+    let startTime = performance.now();
+
+    const renderFrame = () => {
+      const now = performance.now();
+      const elapsed = now - startTime;
+      const clamped = Math.min(elapsed, totalDurationMs);
+      const sectionIndex = Math.min(
+        sections.length - 1,
+        Math.floor(clamped / sectionDurationMs)
+      );
+      const sectionElapsed = clamped - sectionIndex * sectionDurationMs;
+      const progress = Math.min(1, sectionElapsed / sectionDurationMs);
+
+      drawFrame(sectionIndex, progress);
+
+      if (clamped >= totalDurationMs) {
+        window.cancelAnimationFrame(frameId);
+        recorder.stop();
+        captureStream.getTracks().forEach((track) => track.stop());
+      }
+    };
+
+    let frameId = window.requestAnimationFrame(function tick() {
+      renderFrame();
+      if (performance.now() - startTime < totalDurationMs) {
+        frameId = window.requestAnimationFrame(tick);
+      }
+    });
+
+    await stopped;
+
+    return new Blob(chunks, { type: mimeType });
+  };
+
+  const handleStartCooking = async (recipe) => {
+    if (!recipe) return;
+
+    setCookingVideoError("");
+    setCookingVideoRecipe(recipe);
+    setShowCookingVideoModal(true);
+    setCookingVideoGenerating(true);
+    cleanupCookingVideo();
+
+    try {
+      const blob = await createCookingVideoBlob(recipe);
+      const url = URL.createObjectURL(blob);
+      setCookingVideoSrc(url);
+    } catch (err) {
+      console.error("Cooking video generation failed:", err);
+      setCookingVideoError(
+        err?.message || "Unable to generate video. Please check browser support or try again later."
+      );
+    } finally {
+      setCookingVideoGenerating(false);
+    }
+  };
+
+  const handleCloseCookingVideoModal = () => {
+    setShowCookingVideoModal(false);
+    if (window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+    }
+    cleanupCookingVideo();
   };
 
   const useMyLocationForDineOut = () => {
@@ -1284,12 +1627,11 @@ function App() {
                 {showGooglePlacesSetupHint && (
                   <div className="mb-3">
                     <p className="fw-bold mb-1">
-                      需要在 Google Cloud 里启用接口（不是程序写错）
+                      Google Cloud API needs to be enabled (not a bug).
                     </p>
                     <p className="mb-0 text-dark">
-                      当前项目尚未启用{" "}
-                      <strong>Places API (New)</strong>。请点下面按钮打开控制台 →
-                      点击 <strong>启用 / Enable</strong> → 等待 1～3 分钟后再点一次菜系搜索。
+                      This project has not enabled <strong>Places API (New)</strong> yet. Click the button below to open the console →
+                      click <strong>Enable</strong> → wait 1-3 minutes, then try the cuisine search again.
                     </p>
                   </div>
                 )}
@@ -1308,7 +1650,7 @@ function App() {
                       target="_blank"
                       rel="noopener noreferrer"
                     >
-                      打开 Google Cloud 启用页面
+                      Open Google Cloud enable page
                     </Button>
                   </div>
                 )}
@@ -1393,7 +1735,17 @@ function App() {
         }}
         recipe={selectedRecipe}
         onShoppingList={handleShoppingList}
+        onStartCooking={handleStartCooking}
         shoppingList={shoppingList}
+      />
+
+      <CookingVideoModal
+        show={showCookingVideoModal}
+        recipe={cookingVideoRecipe}
+        videoSrc={cookingVideoSrc}
+        generating={cookingVideoGenerating}
+        error={cookingVideoError}
+        onClose={handleCloseCookingVideoModal}
       />
 
       <ScanFridgeModal
