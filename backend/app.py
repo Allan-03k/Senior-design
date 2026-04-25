@@ -8,7 +8,7 @@ from pydantic import ValidationError
 from dotenv import load_dotenv
 from requests import HTTPError
 
-from models import db, Recipe, RecipeIngredient
+from models import db, Recipe, RecipeIngredient, FavoriteRecipe
 from services.recipes import recommend_recipes, get_shopping_missing
 from services.places import search_restaurants, geocode_address
 from services.webrecipes import discover_recipes_from_web
@@ -281,6 +281,54 @@ def docs():
         mimetype="text/html",
     )
 
+@app.route("/api/favorites", methods=["POST"])
+def add_favorite():
+    data = request.get_json()
+
+    name = data.get("name")
+    cuisine = data.get("cuisine")
+    source_url = data.get("source_url")
+
+    if not name:
+        return jsonify({"error": "name is required"}), 400
+
+    favorite = FavoriteRecipe(
+        name=name,
+        cuisine=cuisine,
+        source_url=source_url
+    )
+
+    db.session.add(favorite)
+    db.session.commit()
+
+    return jsonify({"message": "favorite saved"})
+
+@app.route("/api/favorites", methods=["GET"])
+def get_favorites():
+    favorites = FavoriteRecipe.query.order_by(FavoriteRecipe.created_at.desc()).all()
+
+    return jsonify([
+        {
+            "id": fav.id,
+            "name": fav.name,
+            "cuisine": fav.cuisine,
+            "source_url": fav.source_url,
+            "created_at": fav.created_at.isoformat()
+        }
+        for fav in favorites
+    ])
+    
+@app.route("/api/favorites/<int:favorite_id>", methods=["DELETE"])
+def delete_favorite(favorite_id):
+    favorite = FavoriteRecipe.query.get(favorite_id)
+
+    if not favorite:
+        return jsonify({"error": "not found"}), 404
+
+    db.session.delete(favorite)
+    db.session.commit()
+
+    return jsonify({"message": "deleted"})
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5001)), debug=True)

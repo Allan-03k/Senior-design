@@ -85,3 +85,10 @@ class WebRecipeCache(db.Model):
     # JSON string (list[dict]) representing the web recipes
     items_json = db.Column(db.Text, nullable=False)
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+class FavoriteRecipe(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(200), nullable=False)
+    cuisine = db.Column(db.String(100), nullable=True)
+    source_url = db.Column(db.String(500), nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
