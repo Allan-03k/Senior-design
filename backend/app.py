@@ -14,6 +14,7 @@ from services.places import search_restaurants, geocode_address
 from services.webrecipes import discover_recipes_from_web
 from services.vision import debug_detect_all
 from flask import request, jsonify
+
 from schemas.dto import (
     RecognizeResponse, RecommendRequest, RecommendResponse,
     ShoppingListRequest, ShoppingListResponse
@@ -24,6 +25,10 @@ load_dotenv()
 app = Flask(__name__)
 CORS(app, resources={r"/api/*": {"origins": "*"}})
 os.makedirs(app.instance_path, exist_ok=True)
+os.makedirs('generated_videos', exist_ok=True)
+
+from services.cooking_guide import cooking_guide_bp
+app.register_blueprint(cooking_guide_bp)
 
 db_path = os.path.join(app.instance_path, "smartcuisine.db")
 

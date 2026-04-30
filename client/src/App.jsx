@@ -270,6 +270,10 @@ function RecipeModal({
   onShoppingList,
   shoppingList,
 }) {
+  const [cookingGuide, setCookingGuide] = useState(null);
+  const [cookingLoading, setCookingLoading] = useState(false);
+  const [cookingError, setCookingError] = useState(null);
+
   if (!recipe) return null;
 
   const handleStartCookingClick = () => {
@@ -281,8 +285,34 @@ function RecipeModal({
     }
   };
 
+  const handleGenerateVideo = async () => {
+    setCookingLoading(true);
+    setCookingError(null);
+    try {
+      const res = await fetch("http://localhost:5001/api/generate-cooking-guide", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          recipe_name: recipe.name || "Unknown Recipe",
+          ingredients: recipe.required_ingredients || [],
+          steps: recipe.steps ? [recipe.steps] : [],
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setCookingGuide(data);
+      } else {
+        setCookingError(data.error || "Generation failed, please try again");
+      }
+    } catch (err) {
+      setCookingError("Request failed: " + err.message);
+    } finally {
+      setCookingLoading(false);
+    }
+  };
+
   return (
-    <Modal show={show} onHide={handleClose} size="lg" centered>
+    <Modal show={show} onHide={() => { setCookingGuide(null); setCookingError(null); handleClose(); }} size="lg" centered>
       <Modal.Header closeButton className="border-0">
         <Modal.Title className="fw-bold">{recipe.name}</Modal.Title>
       </Modal.Header>
@@ -321,10 +351,29 @@ function RecipeModal({
           </Col>
 
           <Col md={6}>
-            <h5 className="border-bottom pb-2">🔥 Instructions</h5>
-            <p className="text-muted" style={{ whiteSpace: "pre-line" }}>
-              {recipe.steps || "No detailed steps provided."}
-            </p>
+            {cookingGuide ? (
+              <>
+                <h5 className="border-bottom pb-2">🎬 Cooking Tutorial</h5>
+                <video width="100%" controls style={{ borderRadius: "8px" }}>
+                  <source src={`http://localhost:5001${cookingGuide.video_url}`} type="video/mp4" />
+                </video>
+              </>
+            ) : cookingLoading ? (
+              <>
+                <h5 className="border-bottom pb-2">🎬 Cooking Tutorial</h5>
+                <div className="d-flex align-items-center justify-content-center" style={{ height: "160px", background: "#f8f9fa", borderRadius: "8px" }}>
+                  <Spinner animation="border" className="me-2" />
+                  <span className="text-muted">Generating video...</span>
+                </div>
+              </>
+            ) : (
+              <>
+                <h5 className="border-bottom pb-2">🔥 Instructions</h5>
+                <p className="text-muted" style={{ whiteSpace: "pre-line" }}>
+                  {recipe.steps || "No detailed steps provided."}
+                </p>
+              </>
+            )}
           </Col>
         </Row>
 
@@ -348,10 +397,29 @@ function RecipeModal({
             </Col>
           </Row>
         )}
+
+        {cookingError && (
+          <div className="alert alert-danger mt-3">{cookingError}</div>
+        )}
+
+        {cookingGuide && cookingGuide.enhanced_steps?.steps?.length > 0 && (
+          <Row className="mt-4">
+            <Col>
+              <h5 className="border-bottom pb-2">📋 Detailed Steps</h5>
+              {cookingGuide.enhanced_steps.steps.map((step, idx) => (
+                <div key={idx} className="mb-3 p-3 border rounded">
+                  <strong>Step {step.step_num}: {step.title}</strong>
+                  <p className="mb-1 mt-1">{step.description}</p>
+                  <small className="text-muted">💡 {step.tips} &nbsp;|&nbsp; ⏱️ {step.duration_minutes} min</small>
+                </div>
+              ))}
+            </Col>
+          </Row>
+        )}
       </Modal.Body>
 
       <Modal.Footer className="border-0">
-        <Button variant="outline-secondary" onClick={handleClose}>
+        <Button variant="outline-secondary" onClick={() => { setCookingGuide(null); setCookingError(null); handleClose(); }}>
           Close
         </Button>
         <Button
@@ -370,11 +438,10 @@ function RecipeModal({
         </Button>
         <Button
           variant="dark"
-          onClick={() => {
-            // TODO: Connect to cooking API
-          }}
+          onClick={handleGenerateVideo}
+          disabled={cookingLoading}
         >
-          Start Cooking
+          {cookingLoading ? <><Spinner animation="border" size="sm" className="me-2" />Generating...</> : "Start Cooking"}
         </Button>
       </Modal.Footer>
     </Modal>
@@ -472,7 +539,7 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [selectedRecipe, setSelectedRecipe] = useState(null);
   const [hasStartedSearch, setHasStartedSearch] = useState(false);
-  const matrixSize = 4; // 固定 4 列 × 3 行
+  const matrixSize = 4;
 
   // Shopping list
   const [shoppingList, setShoppingList] = useState([]);
@@ -1284,12 +1351,12 @@ function App() {
                 {showGooglePlacesSetupHint && (
                   <div className="mb-3">
                     <p className="fw-bold mb-1">
-                      需要在 Google Cloud 里启用接口（不是程序写错）
+                      The Google Cloud API needs to be enabled (not a code error)
                     </p>
                     <p className="mb-0 text-dark">
-                      当前项目尚未启用{" "}
-                      <strong>Places API (New)</strong>。请点下面按钮打开控制台 →
-                      点击 <strong>启用 / Enable</strong> → 等待 1～3 分钟后再点一次菜系搜索。
+                      The{" "}
+                      <strong>Places API (New)</strong> is not enabled for this project. Click the button below to open the console →
+                      click <strong>Enable</strong> → wait 1–3 minutes, then search again.
                     </p>
                   </div>
                 )}
@@ -1308,7 +1375,7 @@ function App() {
                       target="_blank"
                       rel="noopener noreferrer"
                     >
-                      打开 Google Cloud 启用页面
+                      Open Google Cloud Console
                     </Button>
                   </div>
                 )}
