@@ -560,6 +560,9 @@ function App() {
   const [dineAddressInput, setDineAddressInput] = useState("");
   const [geocodeLoading, setGeocodeLoading] = useState(false);
   const [resSearchMessage, setResSearchMessage] = useState("");
+  const [dineCustomCuisine, setDineCustomCuisine] = useState("");
+  const [dineSortBy, setDineSortBy] = useState("distance");
+  const [dinePriceFilter, setDinePriceFilter] = useState("all");
 
   // Favorites (persisted to localStorage)
   const [favorites, setFavorites] = useState(() => {
@@ -1500,6 +1503,7 @@ function App() {
               </Col>
             </Row>
 
+            {/* Cuisine selector */}
             <div className="text-center mb-4">
               {pantryCuisineHints.length > 0 && (
                 <p className="small text-muted mb-3">
@@ -1516,27 +1520,85 @@ function App() {
                   ))}
                 </p>
               )}
-              <div className="d-flex justify-content-center gap-2 mt-2 flex-wrap">
+              <div className="d-flex justify-content-center gap-2 mt-2 flex-wrap mb-3">
                 {[
-                  "Italian",
-                  "Chinese",
-                  "Japanese",
-                  "American",
-                  "Mexican",
-                  "Thai",
-                  "Indian",
+                  "Italian", "Chinese", "Japanese", "American",
+                  "Mexican", "Thai", "Indian", "Korean", "Vietnamese", "Mediterranean",
                 ].map((c) => (
                   <Button
                     key={c}
                     variant="outline-danger"
-                    className="rounded-pill px-4"
+                    className="rounded-pill px-3"
                     onClick={() => searchRestaurants(c)}
                   >
                     {c}
                   </Button>
                 ))}
               </div>
+              {/* Custom cuisine input */}
+              <Form
+                className="d-flex justify-content-center gap-2"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const q = dineCustomCuisine.trim();
+                  if (q) searchRestaurants(q);
+                }}
+              >
+                <Form.Control
+                  type="text"
+                  placeholder="Search any cuisine…"
+                  value={dineCustomCuisine}
+                  onChange={(e) => setDineCustomCuisine(e.target.value)}
+                  style={{ maxWidth: 260 }}
+                  className="rounded-pill"
+                />
+                <Button
+                  type="submit"
+                  variant="danger"
+                  className="rounded-pill px-4"
+                  disabled={!dineCustomCuisine.trim()}
+                >
+                  Search
+                </Button>
+              </Form>
             </div>
+
+            {/* Sort & price filter — only shown once results exist */}
+            {restaurants.length > 0 && !resLoading && (
+              <div className="d-flex flex-wrap gap-3 align-items-center justify-content-between mb-3 px-1">
+                <div className="d-flex align-items-center gap-2">
+                  <span className="small text-muted fw-semibold">Sort:</span>
+                  {[
+                    { key: "distance", label: "📍 Distance" },
+                    { key: "rating", label: "⭐ Rating" },
+                  ].map(({ key, label }) => (
+                    <Button
+                      key={key}
+                      size="sm"
+                      variant={dineSortBy === key ? "danger" : "outline-secondary"}
+                      className="rounded-pill"
+                      onClick={() => setDineSortBy(key)}
+                    >
+                      {label}
+                    </Button>
+                  ))}
+                </div>
+                <div className="d-flex align-items-center gap-2">
+                  <span className="small text-muted fw-semibold">Price:</span>
+                  {["all", "$", "$$", "$$$", "$$$$"].map((p) => (
+                    <Button
+                      key={p}
+                      size="sm"
+                      variant={dinePriceFilter === p ? "danger" : "outline-secondary"}
+                      className="rounded-pill"
+                      onClick={() => setDinePriceFilter(p)}
+                    >
+                      {p === "all" ? "All" : p}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {resLoading && (
               <div className="text-center py-5">
@@ -1588,68 +1650,125 @@ function App() {
             )}
 
             <Row>
-              {restaurants.map((res, idx) => (
-                <Col md={4} key={res.place_id || idx} className="mb-4">
-                  <Card className="border-0 shadow h-100 hover-shadow">
-                    <Card.Body className="d-flex flex-column">
-                      <div className="d-flex justify-content-between align-items-start gap-2">
-                        <h5 className="fw-bold mb-0">{res.name}</h5>
-                        <div className="text-end flex-shrink-0">
-                          {res.rating != null && res.rating > 0 && (
-                            <Badge bg="warning" text="dark" className="me-1">
-                              ⭐ {res.rating}
+              {(() => {
+                let list = [...restaurants];
+                // Price filter
+                if (dinePriceFilter !== "all") {
+                  list = list.filter((r) => r.price_label === dinePriceFilter);
+                }
+                // Sort
+                if (dineSortBy === "rating") {
+                  list.sort((a, b) => (b.rating || 0) - (a.rating || 0));
+                } else {
+                  list.sort((a, b) => (a.distance_km || 9999) - (b.distance_km || 9999));
+                }
+                return list.map((res, idx) => (
+                  <Col md={4} key={res.place_id || idx} className="mb-4">
+                    <Card className="border-0 shadow h-100">
+                      {/* Photo */}
+                      {res.photo_url ? (
+                        <Card.Img
+                          variant="top"
+                          src={res.photo_url}
+                          style={{ height: "160px", objectFit: "cover" }}
+                          onError={(e) => { e.target.style.display = "none"; }}
+                        />
+                      ) : (
+                        <div
+                          style={{
+                            height: "160px",
+                            background: "linear-gradient(135deg,#f5f5f5,#e0e0e0)",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            fontSize: "2.5rem",
+                          }}
+                        >
+                          🍽️
+                        </div>
+                      )}
+                      <Card.Body className="d-flex flex-column">
+                        <div className="d-flex justify-content-between align-items-start gap-2 mb-1">
+                          <h5 className="fw-bold mb-0" style={{ fontSize: "1rem" }}>{res.name}</h5>
+                          <div className="text-end flex-shrink-0">
+                            {res.rating != null && res.rating > 0 && (
+                              <Badge bg="warning" text="dark" className="me-1">
+                                ⭐ {res.rating}
+                              </Badge>
+                            )}
+                            {res.price_label ? (
+                              <Badge bg="secondary">{res.price_label}</Badge>
+                            ) : null}
+                          </div>
+                        </div>
+
+                        {res.user_ratings_total != null && res.user_ratings_total > 0 && (
+                          <p className="small text-muted mb-1">
+                            {res.user_ratings_total.toLocaleString()} reviews
+                          </p>
+                        )}
+
+                        <p className="small text-muted mb-2">
+                          📍 {res.address || res.vicinity}
+                        </p>
+
+                        <div className="d-flex flex-wrap gap-2 align-items-center mb-2">
+                          {typeof res.distance_km === "number" && (
+                            <Badge bg="light" text="dark" className="border">
+                              {res.distance_km < 1
+                                ? `${Math.round(res.distance_km * 1000)} m`
+                                : `${res.distance_km} km`}
                             </Badge>
                           )}
-                          {res.price_label ? (
-                            <Badge bg="secondary">{res.price_label}</Badge>
-                          ) : null}
+                          {res.open_now === true && <Badge bg="success">Open now</Badge>}
+                          {res.open_now === false && <Badge bg="secondary">Closed</Badge>}
                         </div>
-                      </div>
-                      {res.user_ratings_total != null &&
-                        res.user_ratings_total > 0 && (
-                        <p className="small text-muted mb-1 mt-1">
-                          {res.user_ratings_total.toLocaleString()} reviews
-                        </p>
-                      )}
-                      <p className="small text-muted mb-2">
-                        📍 {res.address || res.vicinity}
-                      </p>
-                      <div className="d-flex flex-wrap gap-2 align-items-center mb-3">
-                        {typeof res.distance_km === "number" && (
-                          <Badge bg="light" text="dark" className="border">
-                            {res.distance_km < 1
-                              ? `${Math.round(res.distance_km * 1000)} m away`
-                              : `${res.distance_km} km away`}
-                          </Badge>
+
+                        {res.phone && (
+                          <p className="small mb-1">
+                            📞{" "}
+                            <a href={`tel:${res.phone}`} className="text-decoration-none text-dark">
+                              {res.phone}
+                            </a>
+                          </p>
                         )}
-                        {res.open_now === true && (
-                          <Badge bg="success">Open now</Badge>
+
+                        {res.website && (
+                          <p className="small mb-2 text-truncate">
+                            🌐{" "}
+                            <a
+                              href={res.website}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-decoration-none"
+                            >
+                              {res.website.replace(/^https?:\/\/(www\.)?/, "").replace(/\/$/, "")}
+                            </a>
+                          </p>
                         )}
-                        {res.open_now === false && (
-                          <Badge bg="secondary">Closed now</Badge>
+
+                        {res.maps_url && (
+                          <div className="mt-auto pt-2">
+                            <Button
+                              variant="outline-danger"
+                              size="sm"
+                              className="rounded-pill"
+                              href={res.maps_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            >
+                              Directions / Maps
+                            </Button>
+                          </div>
                         )}
-                      </div>
-                      {res.maps_url && (
-                        <div className="mt-auto">
-                          <Button
-                            variant="outline-danger"
-                            size="sm"
-                            className="rounded-pill"
-                            href={res.maps_url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                          >
-                            Directions / Maps
-                          </Button>
-                        </div>
-                      )}
-                    </Card.Body>
-                  </Card>
-                </Col>
-              ))}
+                      </Card.Body>
+                    </Card>
+                  </Col>
+                ));
+              })()}
               {!resLoading && restaurants.length === 0 && !resSearchMessage && (
                 <div className="text-center text-muted w-100 py-5">
-                  Choose a cuisine or a pantry suggestion to search.
+                  Choose a cuisine above or type a custom one to search.
                 </div>
               )}
             </Row>

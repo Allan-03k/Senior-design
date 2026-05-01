@@ -24,6 +24,9 @@ _PLACES_FIELD_MASK = ",".join(
         "places.userRatingCount",
         "places.priceLevel",
         "places.currentOpeningHours",
+        "places.photos",
+        "places.nationalPhoneNumber",
+        "places.websiteUri",
     ]
 )
 
@@ -80,6 +83,17 @@ def _new_place_to_row(
     hours = place.get("currentOpeningHours") or {}
     open_now = hours.get("openNow")
 
+    # Build photo URL — stays server-side so the key never leaves the backend response
+    photo_url = None
+    photos = place.get("photos") or []
+    if photos and GOOGLE_KEY:
+        photo_name = (photos[0] or {}).get("name")
+        if photo_name:
+            photo_url = (
+                f"https://places.googleapis.com/v1/{photo_name}/media"
+                f"?maxWidthPx=400&key={GOOGLE_KEY}"
+            )
+
     return {
         "name": name or "Restaurant",
         "rating": place.get("rating"),
@@ -93,6 +107,9 @@ def _new_place_to_row(
         "open_now": open_now,
         "price_level": place.get("priceLevel"),
         "price_label": _price_level_new_api(place.get("priceLevel")),
+        "photo_url": photo_url,
+        "phone": place.get("nationalPhoneNumber"),
+        "website": place.get("websiteUri"),
     }
 
 
@@ -115,63 +132,48 @@ def search_restaurants(
     radius_m = float(max(500, min(int(radius), 50000)))
     text_query = f"{cuisine.strip()} restaurant"
 
-    circle = {
-        "center": {"latitude": float(lat), "longitude": float(lng)},
-        "radius": radius_m,
-    }
-
     headers = {
         "Content-Type": "application/json",
         "X-Goog-Api-Key": GOOGLE_KEY,
         "X-Goog-FieldMask": _PLACES_FIELD_MASK,
     }
 
-    places: List[Dict[str, Any]] = []
-    last_http_error: Optional[str] = None
+    # Places API (New): locationRestriction only accepts rectangle; circle is
+    # only valid inside locationBias.  We use locationBias + haversine
+    # post-filter to stay within the requested radius.
+    body: Dict[str, Any] = {
+        "textQuery": text_query,
+        "maxResultCount": 20,
+        "locationBias": {
+            "circle": {
+                "center": {"latitude": float(lat), "longitude": float(lng)},
+                "radius": radius_m,
+            }
+        },
+    }
 
-    for use_hard_restriction in (True, False):
-        body: Dict[str, Any] = {
-            "textQuery": text_query,
-            "maxResultCount": 20,
-        }
-        if use_hard_restriction:
-            body["locationRestriction"] = {"circle": circle}
-        else:
-            body["locationBias"] = {"circle": circle}
+    try:
+        resp = requests.post(
+            PLACES_SEARCH_TEXT_URL,
+            headers=headers,
+            json=body,
+            timeout=15,
+        )
+    except Exception as e:
+        return {"results": [], "status": "HTTP_ERROR", "error_message": str(e)}
 
+    if resp.status_code != 200:
         try:
-            resp = requests.post(
-                PLACES_SEARCH_TEXT_URL,
-                headers=headers,
-                json=body,
-                timeout=15,
-            )
-        except Exception as e:
-            return {
-                "results": [],
-                "status": "HTTP_ERROR",
-                "error_message": str(e),
-            }
+            payload = resp.json()
+            err = payload.get("error") or {}
+            error_message = err.get("message") or resp.text[:500]
+            status = err.get("status") or f"HTTP_{resp.status_code}"
+        except Exception:
+            error_message = resp.text[:500] if resp.text else str(resp.status_code)
+            status = f"HTTP_{resp.status_code}"
+        return {"results": [], "status": status, "error_message": error_message}
 
-        if resp.status_code != 200:
-            try:
-                payload = resp.json()
-                err = payload.get("error") or {}
-                last_http_error = err.get("message") or resp.text[:500]
-                status = err.get("status") or f"HTTP_{resp.status_code}"
-            except Exception:
-                last_http_error = resp.text[:500] if resp.text else str(resp.status_code)
-                status = f"HTTP_{resp.status_code}"
-            return {
-                "results": [],
-                "status": status,
-                "error_message": last_http_error or "",
-            }
-
-        data = resp.json()
-        places = data.get("places") or []
-        if places:
-            break
+    places = resp.json().get("places") or []
 
     rows: List[Dict[str, Any]] = []
     for p in places:
