@@ -41,7 +41,7 @@ def _make_cache_key(ingredients: List[str], cuisine: Optional[str]) -> str:
     return key
 
 
-def _google_search(query: str, count: int = 10) -> List[Dict[str, Any]]:
+def _google_search(query: str, count: int = 10, start: int = 1) -> List[Dict[str, Any]]:
     google_key = os.getenv("GOOGLE_API_KEY")
     google_cx = os.getenv("GOOGLE_CSE_ID")
 
@@ -54,6 +54,7 @@ def _google_search(query: str, count: int = 10) -> List[Dict[str, Any]]:
         "cx": google_cx,
         "q": f"{query} recipe",
         "num": count,
+        "start": start,
     }
 
     resp = requests.get(url, params=params, headers=UA, timeout=12)
@@ -327,17 +328,20 @@ def discover_recipes_from_web(
     ingredients: List[str],
     cuisine: Optional[str] = None,
     limit: int = 10,
+    start: int = 1,
 ) -> List[Dict[str, Any]]:
     """
     High-level function used by the Flask API.
 
-    1. Build a cache key from ingredients + cuisine
+    1. Build a cache key from ingredients + cuisine + start page
     2. If we have a fresh cache entry in SQLite, return it directly
     3. Otherwise call Google CSE, transform the results, save to cache
     4. If Google fails (429 / quota exceeded) but we have an old cache,
        return the old cache instead of crashing.
     """
     cache_key = _make_cache_key(ingredients, cuisine)
+    if start > 1:
+        cache_key += f"|p{start}"
     now = datetime.utcnow()
     cutoff = now - timedelta(days=CACHE_TTL_DAYS)
 
@@ -372,7 +376,7 @@ def discover_recipes_from_web(
 
     # --- 3) Call Google CSE ---
     try:
-        raw_items = _google_search(query, count=limit)
+        raw_items = _google_search(query, count=limit, start=start)
     except requests.HTTPError as e:
         if existing:
             try:

@@ -143,7 +143,7 @@ def recommend():
     except ValidationError as e:
         return err(message=e.errors()[0]["msg"])
 
-    results = recommend_recipes(payload.ingredients)
+    results = recommend_recipes(payload.ingredients, threshold=payload.threshold)
     return ok(RecommendResponse(recipes=results).model_dump())
 
 
@@ -178,6 +178,7 @@ def search_web():
     data = request.get_json(silent=True) or {}
     ingredients = data.get("ingredients", [])
     cuisine = data.get("cuisine")
+    start = int(data.get("start", 1))
 
     if not ingredients:
         return err("BAD_REQUEST", "ingredients required")
@@ -189,6 +190,7 @@ def search_web():
             ingredients=ingredients,
             cuisine=cuisine,
             limit=10,
+            start=start,
         )
     except HTTPError as e:
         app.logger.error("search_web HTTPError: %s", e)

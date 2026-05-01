@@ -7,6 +7,7 @@ class RecognizeResponse(BaseModel):
 
 class RecommendRequest(BaseModel):
     ingredients: List[str] = Field(min_length=1)
+    threshold: float = 0.5
 
     @field_validator("ingredients")
     @classmethod

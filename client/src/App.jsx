@@ -539,7 +539,9 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [selectedRecipe, setSelectedRecipe] = useState(null);
   const [hasStartedSearch, setHasStartedSearch] = useState(false);
-  const matrixSize = 4;
+  const [recipeOffset, setRecipeOffset] = useState(0);
+  const [refreshCount, setRefreshCount] = useState(0);
+  const PAGE_SIZE = 16;
 
   // Shopping list
   const [shoppingList, setShoppingList] = useState([]);
@@ -559,6 +561,37 @@ function App() {
   const [geocodeLoading, setGeocodeLoading] = useState(false);
   const [resSearchMessage, setResSearchMessage] = useState("");
 
+  // Favorites (persisted to localStorage)
+  const [favorites, setFavorites] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem("smarteats_favorites") || "[]");
+    } catch {
+      return [];
+    }
+  });
+
+  useEffect(() => {
+    localStorage.setItem("smarteats_favorites", JSON.stringify(favorites));
+  }, [favorites]);
+
+  const getFavKey = (recipe) =>
+    String(recipe.sourceUrl || recipe.url || recipe.id || recipe.name || "");
+
+  const isFavorited = (recipe) => {
+    const key = getFavKey(recipe);
+    return favorites.some((f) => getFavKey(f) === key);
+  };
+
+  const toggleFavorite = (recipe, e) => {
+    e?.stopPropagation();
+    const key = getFavKey(recipe);
+    setFavorites((prev) =>
+      prev.some((f) => getFavKey(f) === key)
+        ? prev.filter((f) => getFavKey(f) !== key)
+        : [...prev, recipe]
+    );
+  };
+
   // Vision scan modal
   const [showScanModal, setShowScanModal] = useState(false);
   const [scanLoading, setScanLoading] = useState(false);
@@ -573,9 +606,13 @@ function App() {
   useEffect(() => {
     const timer = setTimeout(() => {
       if (hasStartedSearch && pantry.length > 0) {
+        setRecipeOffset(0);
+        setRefreshCount(0);
         handleRecommend(pantry);
       } else if (!hasStartedSearch) {
         setRecipes([]);
+        setRecipeOffset(0);
+        setRefreshCount(0);
       }
     }, 700);
 
@@ -691,12 +728,31 @@ function App() {
   const handleStartSearch = () => {
     if (pantry.length > 0) {
       setHasStartedSearch(true);
+      setRecipeOffset(0);
+      setRefreshCount(0);
       handleRecommend(pantry);
     }
   };
 
+  // Cycle to next batch; fetch new recipes when pool exhausted
+  const handleRefreshRecipes = () => {
+    const nextOffset = recipeOffset + PAGE_SIZE;
+    if (nextOffset < recipes.length) {
+      setRecipeOffset(nextOffset);
+    } else {
+      const newCount = refreshCount + 1;
+      setRefreshCount(newCount);
+      // Lower threshold progressively to surface more local recipes
+      const threshold = Math.max(0.2, 0.5 - newCount * 0.1);
+      // Advance Google CSE page to get genuinely new web results
+      const webStart = (newCount * 10) + 1;
+      setRecipeOffset(0);
+      handleRecommend(pantry, { threshold, webStart });
+    }
+  };
+
   // Call /recipes/recommend + /recipes/search-web
-  const handleRecommend = async (currentPantry) => {
+  const handleRecommend = async (currentPantry, { threshold = 0.5, webStart = 1 } = {}) => {
     const requestToken = Date.now();
     latestRecommendTokenRef.current = requestToken;
     if (activeRecommendControllerRef.current) {
@@ -708,7 +764,8 @@ function App() {
     const normalizedPantry = currentPantry
       .map((i) => normalizeIngredientText(i))
       .filter(Boolean);
-    const pantryKey = [...new Set(normalizedPantry)].sort().join("|");
+    // Cache key includes webStart so different pages are stored separately
+    const pantryKey = [...new Set(normalizedPantry)].sort().join("|") + `|p${webStart}`;
 
     setLoading(true);
     try {
@@ -716,6 +773,7 @@ function App() {
         `${API_BASE}/recipes/recommend`,
         {
           ingredients: currentPantry,
+          threshold,
         },
         { signal: controller.signal }
       );
@@ -727,7 +785,7 @@ function App() {
       if (results.length < 50 && normalizedPantry.length >= 1) {
         const maxItems = 50;
 
-      if (webRecipeCacheRef.current.has(pantryKey)) {
+        if (webRecipeCacheRef.current.has(pantryKey)) {
           const cachedWeb = webRecipeCacheRef.current.get(pantryKey) || [];
           const combinedCached = [...results, ...cachedWeb];
           const uniqueCached = new Map();
@@ -748,6 +806,7 @@ function App() {
             `${API_BASE}/recipes/search-web`,
             {
               ingredients: currentPantry,
+              start: webStart,
             },
             { signal: controller.signal }
           );
@@ -764,7 +823,7 @@ function App() {
                 : extractIngredientsFromText(firstInstruction);
 
             return {
-              id: `web-${idx}`,
+              id: `web-p${webStart}-${idx}`,
               name: item.name,
               cuisine: "Web Discovery",
               match_ratio: item.score || 0.6,
@@ -983,10 +1042,26 @@ function App() {
             variant={
               activeTab === "restaurants" ? "danger" : "outline-secondary"
             }
-            className="rounded-pill px-4"
+            className="rounded-pill px-4 me-2"
             onClick={() => setActiveTab("restaurants")}
           >
             🍔 Dine Out
+          </Button>
+          <Button
+            variant={activeTab === "favorites" ? "danger" : "outline-secondary"}
+            className="rounded-pill px-4 position-relative"
+            onClick={() => setActiveTab("favorites")}
+          >
+            ❤️ Favorites
+            {favorites.length > 0 && (
+              <Badge
+                bg="danger"
+                className="position-absolute top-0 start-100 translate-middle rounded-pill"
+                style={{ fontSize: "0.65rem" }}
+              >
+                {favorites.length}
+              </Badge>
+            )}
           </Button>
         </Nav>
       </Navbar>
@@ -1090,13 +1165,25 @@ function App() {
             <Col md={9} className="p-4">
               <div className="d-flex justify-content-between align-items-center mb-3">
                 <h5 className="mb-0">
-                  What you can make ({recipes.length} ideas):
+                  What you can make{recipes.length > 0
+                    ? ` (${recipeOffset + 1}–${Math.min(recipeOffset + PAGE_SIZE, recipes.length)} of ${recipes.length})`
+                    : ""}:
                 </h5>
-                {loading && (
-                  <div className="text-danger">
+                <div className="d-flex align-items-center gap-2">
+                  {hasStartedSearch && !loading && recipes.length > 0 && (
+                    <Button
+                      variant="outline-danger"
+                      size="sm"
+                      className="rounded-pill px-3"
+                      onClick={handleRefreshRecipes}
+                    >
+                      🔄 {recipeOffset + PAGE_SIZE < recipes.length ? "Show More" : "Refresh"}
+                    </Button>
+                  )}
+                  {loading && (
                     <Spinner animation="border" variant="danger" size="sm" />
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
 
               {!hasStartedSearch && pantry.length > 0 && (
@@ -1133,7 +1220,7 @@ function App() {
                   gap: "1rem",
                 }}
               >
-                {recipes.slice(0, 50).map((recipe) => {
+                {recipes.slice(recipeOffset, recipeOffset + PAGE_SIZE).map((recipe) => {
                   const cardImage = recipe.image
                     ? recipe.image
                     : `https://placehold.co/600x400/EEE/31343C?text=${encodeURIComponent(
@@ -1142,6 +1229,7 @@ function App() {
 
                   return (
                       <Card
+                        key={recipe.id || recipe.name}
                         className="border-0 shadow-sm h-100 recipe-card"
                         style={{
                           cursor: "pointer",
@@ -1180,6 +1268,28 @@ function App() {
                               Match: {Math.round(recipe.match_ratio * 100)}%
                             </Badge>
                           )}
+                          <button
+                            onClick={(e) => toggleFavorite(recipe, e)}
+                            style={{
+                              position: "absolute",
+                              top: "8px",
+                              left: "8px",
+                              background: "rgba(255,255,255,0.85)",
+                              border: "none",
+                              borderRadius: "50%",
+                              width: "32px",
+                              height: "32px",
+                              cursor: "pointer",
+                              fontSize: "1rem",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              boxShadow: "0 1px 4px rgba(0,0,0,0.2)",
+                            }}
+                            title={isFavorited(recipe) ? "Remove from favorites" : "Add to favorites"}
+                          >
+                            {isFavorited(recipe) ? "❤️" : "🤍"}
+                          </button>
                         </div>
 
                         <Card.Body>
@@ -1196,6 +1306,101 @@ function App() {
               </div>
             </Col>
           </Row>
+        ) : activeTab === "favorites" ? (
+          <Container className="py-4">
+            <div className="d-flex justify-content-between align-items-center mb-4">
+              <h4 className="mb-0 fw-bold">❤️ Favorite Recipes ({favorites.length})</h4>
+              {favorites.length > 0 && (
+                <Button
+                  variant="outline-secondary"
+                  size="sm"
+                  className="rounded-pill"
+                  onClick={() => setFavorites([])}
+                >
+                  Clear All
+                </Button>
+              )}
+            </div>
+
+            {favorites.length === 0 ? (
+              <div className="text-center text-muted py-5">
+                <p style={{ fontSize: "3rem" }}>🤍</p>
+                <p>No favorites yet. Tap the heart on any recipe to save it here.</p>
+              </div>
+            ) : (
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+                  gap: "1rem",
+                }}
+              >
+                {favorites.map((recipe) => {
+                  const cardImage = recipe.image
+                    ? recipe.image
+                    : `https://placehold.co/600x400/EEE/31343C?text=${encodeURIComponent(
+                        recipe.name
+                      )}&font=roboto`;
+
+                  return (
+                    <Card
+                      key={getFavKey(recipe)}
+                      className="border-0 shadow-sm h-100 recipe-card"
+                      style={{ cursor: "pointer", transition: "0.2s" }}
+                      onClick={() => {
+                        setSelectedRecipe(recipe);
+                        setShoppingList([]);
+                      }}
+                    >
+                      <div style={{ height: "240px", overflow: "hidden", position: "relative" }}>
+                        <Card.Img
+                          variant="top"
+                          src={cardImage}
+                          style={{ objectFit: "cover", height: "240px", width: "100%" }}
+                        />
+                        <button
+                          onClick={(e) => toggleFavorite(recipe, e)}
+                          style={{
+                            position: "absolute",
+                            top: "8px",
+                            left: "8px",
+                            background: "rgba(255,255,255,0.85)",
+                            border: "none",
+                            borderRadius: "50%",
+                            width: "32px",
+                            height: "32px",
+                            cursor: "pointer",
+                            fontSize: "1rem",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            boxShadow: "0 1px 4px rgba(0,0,0,0.2)",
+                          }}
+                          title="Remove from favorites"
+                        >
+                          ❤️
+                        </button>
+                        {typeof recipe.match_ratio === "number" && (
+                          <Badge
+                            bg={recipe.match_ratio === 1 ? "success" : "warning"}
+                            className="position-absolute top-0 end-0 m-2 shadow-sm"
+                          >
+                            Match: {Math.round(recipe.match_ratio * 100)}%
+                          </Badge>
+                        )}
+                      </div>
+                      <Card.Body>
+                        <Card.Title className="h5 fw-bold text-truncate">{recipe.name}</Card.Title>
+                        <Card.Text className="text-muted" style={{ fontSize: "0.95rem" }}>
+                          {recipe.cuisine || "Recipe"}
+                        </Card.Text>
+                      </Card.Body>
+                    </Card>
+                  );
+                })}
+              </div>
+            )}
+          </Container>
         ) : (
           <Container className="py-5">
             <div className="text-center mb-4">
